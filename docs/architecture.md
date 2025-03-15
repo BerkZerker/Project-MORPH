@@ -1,140 +1,120 @@
-# MORPH Architecture Design
+# MORPH Architecture
 
-## System Overview
+## Overview
 
-MORPH (Mixture Of experts with Recursive Post-processing & Hierarchy) is a novel neural network architecture that dynamically adapts to new data distributions through several key mechanisms:
+MORPH (Mixture Of experts with Recursive Post-processing & Hierarchy) is an advanced neural network architecture that implements a dynamic Mixture of Experts (MoE) model with continuous learning capabilities. The system features adaptive expert creation, brain-inspired post-processing mechanisms, and a knowledge graph for intelligent routing.
 
-1. **Dynamic Mixture of Experts (MoE)**: A framework where multiple specialized neural networks (experts) collaboratively solve tasks
-2. **Adaptive Expert Creation**: Automatic generation of new experts when existing ones underperform
-3. **Knowledge Graph Routing**: Expert selection based on semantic relationships rather than fixed gates
-4. **Sleep Cycle Consolidation**: Periodic optimization of the expert pool via merging and pruning
+![Architecture Diagram](images/architecture.png)
 
 ## Core Components
 
-### Expert Networks
+### MorphModel
 
-Each expert in MORPH is a specialized neural network designed to handle specific input patterns:
+The main model class that orchestrates all components. It manages the flow of information between the gating network, experts, knowledge graph, and sleep module.
 
-```
-Expert Structure:
-- Input Layer (size configurable)
-- Hidden Layers (customizable depth and width)
-- Output Layer (size configurable)
-- Activation metadata (utilization tracking)
-```
+Key responsibilities:
+- Forward pass routing through experts
+- Expert creation and management
+- Step counting and sleep cycle triggering
+- Integration of all components
 
-Experts maintain statistics about their usage and activation patterns, which inform the sleep cycle's consolidation decisions.
+### Expert
 
-### Gating Network
+Individual neural networks that specialize in particular subtasks or data distributions. Each expert tracks its own activations, specialization metrics, and activation history.
 
-The gating network routes inputs to the most appropriate experts:
+Features:
+- Customizable neural network architecture
+- Activation tracking
+- Specialization metrics
+- Input feature tracking
+- Performance history
 
-```
-Gating Network Structure:
-- Input Embedding Layer
-- Hidden Layer
-- Output Layer (produces expert selection probabilities)
-```
+### GatingNetwork
 
-The gating network uses uncertainty estimates to trigger new expert creation when no existing expert can confidently handle an input.
+Routes inputs to the most appropriate experts based on input features. It determines the expert selection and uncertainty levels that drive dynamic expert creation.
 
-### Knowledge Graph
+Features:
+- Top-k routing mechanism
+- Uncertainty calculation
+- Dynamic expert creation signaling
 
-The knowledge graph tracks conceptual relationships between experts:
+### KnowledgeGraph
 
-```
-Knowledge Graph Structure:
-- Nodes: Individual experts
-- Edges: Similarity/relationship strengths between experts
-- Metadata: Activation statistics, specialization domains
-```
+Represents relationships between experts and concept domains. This component tracks expert similarities, specializations, and knowledge dependencies.
 
-This graph structure helps with routing decisions and expert consolidation during sleep cycles.
+Features:
+- Expert relationship tracking
+- Concept embedding storage
+- Similarity computation
+- Edge weight decay
+- Specialization tracking
 
-### Sleep Module
+### SleepModule
 
-The sleep module performs periodic optimization of the expert pool:
+Handles periodic knowledge consolidation through memory replay, expert merging, and reorganization. This is inspired by how biological brains consolidate memories during sleep.
 
-```
-Sleep Cycle Operations:
-1. Memory Replay: Revisit stored activations
-2. Expert Similarity Analysis: Compute pair-wise expert similarities
-3. Expert Merging: Combine redundant experts
-4. Expert Pruning: Remove dormant or underutilized experts
-5. Knowledge Graph Reorganization: Update the graph structure
-```
+Features:
+- Memory replay system
+- Expert merging and pruning
+- Knowledge reorganization
+- Adaptive sleep scheduling
+- Meta-learning optimization
 
 ## Data Flow
 
-The typical data flow through the MORPH system follows these steps:
+1. **Input Processing**: Inputs pass through the gating network
+2. **Expert Selection**: Gating network selects the most appropriate experts
+3. **Expert Processing**: Selected experts process the inputs
+4. **Output Combination**: Expert outputs are combined using gating weights
+5. **Tracking**: Activation patterns are stored for later consolidation
+6. **Sleep Process**: At intervals, the sleep module consolidates knowledge
 
-1. Input data arrives at the gating network
-2. Gating network computes routing probabilities for experts
-3. Top-k experts are selected and activated
-4. Each expert processes the input independently
-5. Outputs are combined according to routing weights
-6. During training, uncertainty is measured
-7. If uncertainty is high, a new expert may be created
-8. Periodically, the sleep cycle optimizes the experts
+## Sleep Cycle
 
-## Implementation Details
+The sleep cycle is a critical part of MORPH that handles knowledge consolidation:
 
-### Forward Pass
+1. **Memory Replay**: Stored activations are replayed to fine-tune experts
+2. **Expert Analysis**: Expert specializations are analyzed and updated
+3. **Expert Merging**: Similar experts are merged to reduce redundancy
+4. **Expert Pruning**: Dormant experts are removed to optimize resources
+5. **Knowledge Reorganization**: Expert relationships are adjusted based on activations
+6. **Meta-Learning**: Model hyperparameters are optimized based on performance
 
-```python
-# Pseudocode for forward pass
-def forward(x, training=True):
-    # Get routing weights
-    routing_weights, expert_indices, uncertainty = gating_network(x)
-    
-    # Maybe create new expert if uncertainty is high and in training mode
-    if training and uncertainty > threshold:
-        create_new_expert()
-    
-    # Initialize output
-    outputs = zeros_like(x.shape[0], output_size)
-    
-    # Route through experts
-    for i in range(k_experts):
-        indices = expert_indices[:, i]
-        weights = routing_weights[:, i]
-        
-        for expert_idx in unique(indices):
-            mask = (indices == expert_idx)
-            expert_inputs = x[mask]
-            expert_outputs = experts[expert_idx](expert_inputs)
-            outputs[mask] += expert_outputs * weights[mask]
-    
-    return outputs
-```
+## Configuration
 
-### Sleep Cycle
+MorphConfig provides configuration options for all aspects of the model:
 
-```python
-# Pseudocode for sleep cycle
-def sleep():
-    # 1. Memory replay
-    replay_stored_activations()
-    
-    # 2. Find experts to merge
-    similar_experts = find_similar_experts()
-    for i, j in similar_experts:
-        merge_experts(i, j)
-    
-    # 3. Find experts to prune
-    dormant_experts = find_dormant_experts()
-    for i in dormant_experts:
-        prune_expert(i)
-    
-    # 4. Update knowledge graph
-    update_knowledge_graph()
-```
+- Expert count and architecture
+- Dynamic expert creation settings
+- Sleep cycle parameters
+- Knowledge graph settings
+- Training parameters
 
-## Scalability Considerations
+## Design Patterns
 
-As the number of experts grows, several optimizations maintain efficiency:
+MORPH uses several key design patterns:
 
-- Sparse activation ensures only a small subset of experts process each input
-- The knowledge graph enables efficient expert selection
-- The sleep cycle prevents unbounded growth of experts
-- Expert similarity computations can be periodically scheduled rather than computed continuously
+1. **Modularity**: Components are decoupled with clear responsibilities
+2. **Dynamic Creation**: Experts are created at runtime based on need
+3. **Self-Optimization**: The model adjusts its own structure during sleep
+4. **Memory Consolidation**: Similar to biological systems, knowledge is consolidated periodically
+5. **Meta-Learning**: The model learns to improve its own learning process
+
+## Advanced Features
+
+### Continuous Learning
+
+MORPH is designed for continuous learning scenarios where data distributions change over time. The architecture prevents catastrophic forgetting through:
+
+- Expert specialization
+- Selective updates
+- Memory replay
+- Knowledge graph tracking
+
+### Concept-Based Routing
+
+The knowledge graph can link experts to specific concepts, enabling more intelligent routing based on semantic understanding rather than just pattern matching.
+
+### Meta-Learning Optimization
+
+During sleep cycles, the model can optimize its own hyperparameters based on performance metrics, adapting to changing data conditions.

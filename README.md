@@ -79,31 +79,51 @@ pip install -r requirements.txt
 ### Example Usage
 
 ```python
-from morph.model import MorphModel
+from morph.core import MorphModel
 from morph.config import MorphConfig
 
 # Initialize MORPH model
 config = MorphConfig(
-    num_initial_experts=4,
+    input_size=784,  # Input feature size
     expert_hidden_size=256,
+    output_size=10,  # Output size
+    num_initial_experts=4,
+    expert_k=2,
     enable_dynamic_experts=True,
-    sleep_cycle_frequency=1000
+    
+    # Sleep cycle settings
+    enable_sleep=True,
+    sleep_cycle_frequency=1000,
+    enable_meta_learning=True
 )
 model = MorphModel(config)
 
-# Train model
-model.train(train_dataset, epochs=10)
+# Setup training
+import torch.nn as nn
+import torch.optim as optim
 
-# Sleep cycle for consolidation
-model.sleep()
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Continue training with new data
-model.train(new_dataset, epochs=5)
+# Train the model
+for epoch in range(10):
+    for inputs, targets in train_loader:
+        # Perform training step
+        metrics = model.train_step((inputs, targets), optimizer, criterion)
+        print(f"Loss: {metrics['loss']:.4f}, Accuracy: {metrics['accuracy']:.2f}%")
+    
+    # Sleep cycle will be automatically triggered based on steps
+    # Or force a sleep cycle
+    model.sleep()
+    
+    # Evaluate
+    eval_metrics = model.evaluate(test_loader, criterion, device)
+    print(f"Test accuracy: {eval_metrics['accuracy']:.2f}%")
 ```
 
 ## Implementation Progress
 
-MORPH is being implemented in four phases:
+MORPH is being implemented in five phases:
 
 ```mermaid
 gantt
@@ -127,9 +147,15 @@ gantt
     Pruning mechanism            :done, p3_3, 2025-06-01, 2025-06-15
     
     section Phase 4
-    Memory replay system         :active, p4_1, 2025-06-15, 2025-07-01
-    Expert reorganization        :p4_2, 2025-07-01, 2025-07-15
-    Sleep cycle scheduler        :p4_3, 2025-07-15, 2025-08-01
+    Memory replay system         :done, p4_1, 2025-06-15, 2025-07-01
+    Expert reorganization        :done, p4_2, 2025-07-01, 2025-07-15
+    Sleep cycle scheduler        :done, p4_3, 2025-07-15, 2025-08-01
+    
+    section Phase 5
+    Advanced knowledge graph     :done, p5_1, 2025-08-01, 2025-08-15
+    Meta-learning optimization   :done, p5_2, 2025-08-15, 2025-09-01
+    Continuous learning system   :active, p5_3, 2025-09-01, 2025-09-15
+    Long-term memory models      :p5_4, 2025-09-15, 2025-10-01
 ```
 
 Current status:
@@ -143,8 +169,10 @@ Current status:
 | Knowledge Graph (Basic) | ✅ Complete | 100% |
 | Expert Merging | ✅ Complete | 100% |
 | Expert Pruning | ✅ Complete | 100% |
-| Knowledge Graph (Advanced) | 🔄 In Progress | 40% |
-| Sleep Module (Memory Replay) | 🔄 In Progress | 20% |
+| Knowledge Graph (Advanced) | ✅ Complete | 100% |
+| Sleep Module (Memory Replay) | ✅ Complete | 100% |
+| Sleep Module (Meta Learning) | ✅ Complete | 100% |
+| Continuous Learning | 🔄 In Progress | 60% |
 
 See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
 
