@@ -172,9 +172,24 @@ Current status:
 | Knowledge Graph (Advanced) | ✅ Complete | 100% |
 | Sleep Module (Memory Replay) | ✅ Complete | 100% |
 | Sleep Module (Meta Learning) | ✅ Complete | 100% |
-| Continuous Learning | 🔄 In Progress | 60% |
+| Continuous Learning | ✅ Complete | 100% |
 
 See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
+
+## Example: Continual Learning
+
+MORPH excels at continual learning tasks where the data distribution changes over time. The newly implemented `examples/continual_learning_example.py` demonstrates this capability by training on a sequence of rotated MNIST tasks:
+
+```bash
+# Run the continual learning example
+python examples/continual_learning_example.py
+```
+
+This example:
+1. Creates a sequence of 5 tasks with increasingly rotated MNIST digits
+2. Trains the model sequentially on each task
+3. Measures catastrophic forgetting on previous tasks
+4. Visualizes how experts are created and specialized during training
 
 ## Documentation
 

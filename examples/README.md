@@ -25,14 +25,26 @@ Results will be saved to the `results/` directory, including:
 - Training/testing loss and accuracy curves
 - The trained model
 
-### 2. Continual Learning (Coming Soon)
+### 2. Continual Learning (`continual_learning_example.py`)
 
 An example that demonstrates how MORPH handles continual learning scenarios with distribution shifts:
 
-- Sequential task introduction
+- Sequential task introduction with rotated MNIST digits
 - Measurement of catastrophic forgetting
 - Expert specialization per task
 - Dynamic expert creation as new tasks are introduced
+
+To run this example:
+
+```bash
+python continual_learning_example.py
+```
+
+Results will be saved to the `results/continual/` directory, including:
+- Task performance over time, showing reduced catastrophic forgetting
+- Expert dynamics during task transitions
+- Knowledge graph evolution
+- Comprehensive metrics on expert utilization and task performance
 
 ### 3. Multi-Domain Adaptation (Coming Soon)
 
