@@ -210,7 +210,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 If you use MORPH in your research, please cite:
 
-```
+```bibtex
 @misc{morph2025,
   author = {Project MORPH Contributors},
   title = {MORPH: Mixture Of experts with Recursive Post-processing & Hierarchy},
