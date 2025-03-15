@@ -103,7 +103,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
     
-    # Configure the MORPH model
+    # Configure the MORPH model with enhanced sleep settings
     config = MorphConfig(
         input_size=784,  # 28x28 MNIST images
         expert_hidden_size=256,
@@ -119,14 +119,31 @@ def main():
         
         # Expert merging and pruning settings
         enable_sleep=True,
-        sleep_cycle_frequency=300,  # Sleep more frequently to demonstrate merging/pruning
+        sleep_cycle_frequency=300,  # Base frequency for sleep cycles
+        enable_adaptive_sleep=True,  # Enable adaptive sleep scheduling
+        min_sleep_frequency=150,     # Minimum steps between sleep cycles
+        max_sleep_frequency=600,     # Maximum steps between sleep cycles
         expert_similarity_threshold=0.75,  # Similarity threshold for merging
         dormant_steps_threshold=1000,  # Steps before considering an expert dormant
         min_lifetime_activations=50,  # Min activations to avoid pruning
         
+        # Memory replay settings
+        memory_replay_batch_size=32,  # Batch size for memory replay
+        memory_buffer_size=2000,      # Maximum size of activation buffer
+        replay_learning_rate=0.0001,  # Learning rate for replay fine-tuning
+        
+        # Expert reorganization
+        enable_expert_reorganization=True,  # Whether to reorganize experts
+        specialization_threshold=0.7,  # Threshold for considering an expert specialized
+        overlap_threshold=0.3,  # Threshold for considering expert overlap significant
+        
         # Knowledge graph settings
         knowledge_edge_decay=0.95,
         knowledge_edge_min=0.1,
+        
+        # Meta-learning
+        enable_meta_learning=True,  # Whether to enable meta-learning optimizations
+        meta_learning_intervals=2,  # Sleep cycles between meta-learning updates
         
         # Training settings
         batch_size=64,
@@ -179,16 +196,25 @@ def main():
     # Log initial state
     log_expert_lifecycle()
     
-    # Override sleep method to track merge/prune events
+    # Track sleep events for visualization
+    sleep_events = []
+    
+    # Override sleep method to track merge/prune events and sleep metrics
     original_sleep = model.sleep
     
     def instrumented_sleep():
-        nonlocal merge_events, prune_events, step_counter
+        nonlocal merge_events, prune_events, step_counter, sleep_events
         
         logging.info(f"[Step {step_counter}] Starting sleep cycle")
         
         # Check expert count before
         num_experts_before = len(model.experts)
+        
+        # Store pre-sleep metrics
+        pre_sleep_metrics = {
+            'expert_count': num_experts_before,
+            'step': step_counter
+        }
         
         # Call original sleep
         original_sleep()
@@ -196,6 +222,10 @@ def main():
         # Check expert count after
         num_experts_after = len(model.experts)
         
+        # Calculate expert delta
+        expert_delta = num_experts_after - num_experts_before
+        
+        # Track merging/pruning events
         if num_experts_after < num_experts_before:
             delta = num_experts_before - num_experts_after
             if len(merge_events) > 0 and merge_events[-1][0] == step_counter:
@@ -204,6 +234,18 @@ def main():
             else:
                 merge_events.append((step_counter, delta))
             logging.info(f"[Step {step_counter}] Merged/Pruned {delta} experts")
+        
+        # Store sleep event with metrics
+        sleep_metrics = {
+            'expert_change': expert_delta,
+            'expert_count_after': num_experts_after,
+            'cycle_number': model.sleep_cycles_completed,
+            'adaptive_frequency': getattr(model, 'adaptive_sleep_frequency', 
+                                        model.config.sleep_cycle_frequency)
+        }
+        sleep_events.append((step_counter, sleep_metrics))
+        logging.info(f"[Step {step_counter}] Sleep cycle completed - " +
+                   f"Next cycle in {sleep_metrics['adaptive_frequency']} steps")
         
         # Update expert lifecycle log
         log_expert_lifecycle()
@@ -298,42 +340,48 @@ def main():
         output_path="results/expert_activations.png"
     )
     
-    # Plot expert lifecycle (creation, merging, pruning)
+    # Use the visualization utility to plot expert lifecycle
+    from morph.utils.visualization import visualize_expert_lifecycle, visualize_sleep_metrics
+    
+    # Plot expert lifecycle with all events
+    visualize_expert_lifecycle(
+        expert_counts=expert_counts,
+        creation_events=create_events,
+        merge_events=merge_events,
+        sleep_events=sleep_events,
+        output_path="results/expert_lifecycle.png"
+    )
+    
+    # Add epoch boundaries to the saved image
+    img = plt.imread("results/expert_lifecycle.png")
     plt.figure(figsize=(12, 6))
+    plt.imshow(img)
     
-    # Plot number of experts over time
+    # Get steps and counts for annotation
     steps, counts = zip(*expert_counts)
-    plt.plot(steps, counts, 'b-', linewidth=2, label='Number of Experts')
-    
-    # Plot expert creation events
-    if create_events:
-        create_steps, create_counts = zip(*create_events)
-        for step, count in zip(create_steps, create_counts):
-            plt.plot([step, step], [0, count], 'g-', alpha=0.7)
-        plt.scatter(create_steps, [counts[steps.index(s)] for s in create_steps], 
-                   color='green', marker='^', s=100, label='Expert Creation')
-    
-    # Plot expert merging/pruning events
-    if merge_events:
-        merge_steps, merge_counts = zip(*merge_events)
-        for step, count in zip(merge_steps, merge_counts):
-            plt.plot([step, step], [0, count], 'r-', alpha=0.7)
-        plt.scatter(merge_steps, [counts[steps.index(s)] for s in merge_steps], 
-                   color='red', marker='v', s=100, label='Expert Merging/Pruning')
+    max_count = max(counts)
     
     # Add epoch boundaries
     for epoch in range(1, config.num_epochs + 1):
         step = epoch * len(train_loader)
-        plt.axvline(x=step, color='gray', linestyle='--', alpha=0.5)
-        plt.text(step, max(counts) + 0.5, f'Epoch {epoch}', 
-                ha='center', va='bottom', fontsize=10)
+        # Calculate pixel position (approximate)
+        relative_x = step / steps[-1]
+        x_pos = relative_x * img.shape[1]
+        plt.axvline(x=x_pos, color='gray', linestyle='--', alpha=0.5)
+        plt.text(x_pos, img.shape[0] * 0.05, f'Epoch {epoch}', 
+                ha='center', va='bottom', fontsize=10, color='black',
+                bbox=dict(facecolor='white', alpha=0.7))
     
-    plt.xlabel('Training Step')
-    plt.ylabel('Number of Experts')
-    plt.title('Expert Lifecycle During Training')
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    plt.savefig("results/expert_lifecycle.png")
+    plt.axis('off')
+    plt.savefig("results/expert_lifecycle_with_epochs.png", bbox_inches='tight')
+    plt.close()
+    
+    # Visualize sleep metrics
+    visualize_sleep_metrics(
+        model=model,
+        sleep_events=sleep_events,
+        output_path="results/sleep_metrics.png"
+    )
     
     # Visualization for knowledge graph evolution
     logging.info("Generating knowledge graph evolution visualization...")

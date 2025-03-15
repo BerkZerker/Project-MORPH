@@ -6,7 +6,7 @@ from typing import Dict, List, Any
 
 
 def visualize_knowledge_graph(model, output_path=None, highlight_dormant=True, 
-                        highlight_similar=True):
+                        highlight_similar=True, highlight_specialization=True):
     """
     Visualize the knowledge graph of experts.
     
@@ -15,6 +15,7 @@ def visualize_knowledge_graph(model, output_path=None, highlight_dormant=True,
         output_path: Path to save the visualization (if None, display instead)
         highlight_dormant: Whether to highlight dormant experts
         highlight_similar: Whether to highlight similar experts
+        highlight_specialization: Whether to highlight expert specialization
     """
     G = model.knowledge_graph
     
@@ -29,53 +30,107 @@ def visualize_knowledge_graph(model, output_path=None, highlight_dormant=True,
     edge_weights = [G.edges[e]['weight'] * 3 for e in G.edges]
     
     # Create figure
-    plt.figure(figsize=(12, 8))
+    plt.figure(figsize=(14, 10))
     
     # Draw the graph
     pos = nx.spring_layout(G, seed=42)  # For reproducible layout
     
-    # Determine node colors based on dormancy and similarity
+    # Determine node colors based on dormancy, specialization, and similarity
     node_colors = []
-    for i, node in enumerate(G.nodes):
-        # Default color
-        color = 'skyblue'
+    node_borders = []
+    node_border_widths = []
+    
+    for node in G.nodes:
+        # Default color (blue gradient based on specialization)
+        if highlight_specialization and 'specialization_score' in G.nodes[node]:
+            spec_score = G.nodes[node]['specialization_score']
+            # Color gradient from light blue (general) to dark blue (specialized)
+            color = (0.5 - 0.5 * spec_score, 0.5, 0.5 + 0.5 * spec_score)
+        else:
+            color = 'skyblue'  # Default blue
+            
+        # Check if dormant
+        dormant = False
+        if highlight_dormant and 'last_activated' in G.nodes[node]:
+            step_diff = model.step_count - G.nodes[node]['last_activated']
+            dormant_threshold = getattr(model.config, 'dormant_steps_threshold', float('inf'))
+            
+            if step_diff > dormant_threshold:
+                color = 'lightgray'  # Dormant expert
+                dormant = True
         
-        if highlight_dormant:
-            # Check if dormant (last_activated too long ago)
-            if 'last_activated' in G.nodes[node]:
-                step_diff = model.step_count - G.nodes[node]['last_activated']
-                dormant_threshold = getattr(model.config, 'dormant_steps_threshold', float('inf'))
-                
-                if step_diff > dormant_threshold:
-                    color = 'lightgray'  # Dormant expert
+        # Border color and width
+        if dormant:
+            node_borders.append('red')
+            node_border_widths.append(2.0)
+        else:
+            # Border based on adaptation rate if available
+            if 'adaptation_rate' in G.nodes[node]:
+                adapt_rate = G.nodes[node]['adaptation_rate']
+                # Higher adaptation = thicker border
+                node_border_widths.append(adapt_rate * 3)
+                node_borders.append('black')
+            else:
+                node_borders.append('black')
+                node_border_widths.append(1.0)
         
         # Add to color list
         node_colors.append(color)
     
     # Draw nodes
-    nx.draw_networkx_nodes(G, pos, node_size=node_sizes, alpha=0.8, 
-                          node_color=node_colors, edgecolors='black')
+    nx.draw_networkx_nodes(G, pos, node_size=node_sizes, alpha=0.9, 
+                          node_color=node_colors, edgecolors=node_borders,
+                          linewidths=node_border_widths)
     
-    # Determine edge colors based on similarity
+    # Determine edge colors and styles based on relationship types
     edge_colors = []
+    edge_styles = []
+    
     for e in G.edges:
-        # Default color
+        # Default
         color = 'gray'
+        style = 'solid'
         
-        if highlight_similar:
-            # Check if edge weight indicates high similarity
-            weight = G.edges[e]['weight']
+        # Get edge data
+        edge_data = G.edges[e]
+        
+        # Check relation type if available
+        if 'relation_type' in edge_data:
+            rel_type = edge_data['relation_type']
+            
+            if rel_type == 'similarity':
+                color = 'blue'
+            elif rel_type == 'specialization':
+                color = 'green'
+            elif rel_type == 'specialization_split':
+                color = 'purple'
+                style = 'dashed'
+            elif rel_type == 'dependency':
+                color = 'orange'
+                style = 'dotted'
+            elif rel_type == 'composition':
+                color = 'red'
+                style = 'dashdot'
+        # Otherwise use weight for similarity coloring
+        elif highlight_similar:
+            weight = edge_data['weight']
             similarity_threshold = getattr(model.config, 'expert_similarity_threshold', 0.8)
             
             if weight > similarity_threshold:
                 color = 'red'  # Indicates potential merging
+            else:
+                # Color gradient based on weight
+                intensity = min(1.0, weight / similarity_threshold)
+                color = (0.7, 0.7 - 0.5 * intensity, 0.7 - 0.5 * intensity)
         
-        # Add to color list
         edge_colors.append(color)
+        edge_styles.append(style)
     
     # Draw edges
-    nx.draw_networkx_edges(G, pos, width=edge_weights, alpha=0.5, 
-                          edge_color=edge_colors, connectionstyle='arc3,rad=0.1')
+    for i, (e, color, style) in enumerate(zip(G.edges, edge_colors, edge_styles)):
+        nx.draw_networkx_edges(G, pos, edgelist=[e], width=edge_weights[i], 
+                              alpha=0.6, edge_color=color, style=style,
+                              connectionstyle='arc3,rad=0.1')
     
     # Draw labels
     nx.draw_networkx_labels(G, pos, font_size=10, font_weight='bold')
@@ -83,39 +138,111 @@ def visualize_knowledge_graph(model, output_path=None, highlight_dormant=True,
     # Add metadata to nodes
     node_info = {}
     for node in G.nodes:
-        if 'activation_count' in G.nodes[node] and 'last_activated' in G.nodes[node]:
-            act_count = G.nodes[node]['activation_count']
-            last_act = G.nodes[node]['last_activated']
-            node_info[node] = f"Act: {act_count}\nLast: {last_act}"
+        node_data = G.nodes[node]
+        info_str = f"Expert {node}\n"
+        
+        if 'activation_count' in node_data:
+            info_str += f"Act: {node_data['activation_count']}\n"
+            
+        if 'specialization_score' in node_data:
+            spec = node_data['specialization_score']
+            info_str += f"Spec: {spec:.2f}\n"
+            
+        if 'adaptation_rate' in node_data:
+            adapt = node_data['adaptation_rate']
+            info_str += f"Adapt: {adapt:.2f}\n"
+            
+        if 'last_activated' in node_data:
+            steps_ago = model.step_count - node_data['last_activated']
+            info_str += f"Last: {steps_ago} steps ago"
+            
+        node_info[node] = info_str
     
-    # Display metadata for a few important nodes
+    # Display metadata for important nodes
     if node_info:
-        important_nodes = sorted(node_info.keys(), 
-                               key=lambda n: G.nodes[n]['activation_count'], 
-                               reverse=True)[:3]
+        # Find important nodes: most active, most specialized, and most recently modified
+        important_nodes = list(sorted(G.nodes, 
+                                   key=lambda n: G.nodes[n].get('activation_count', 0), 
+                                   reverse=True)[:2])
+        
+        # Add most specialized
+        if highlight_specialization:
+            specialized_nodes = sorted(G.nodes, 
+                                     key=lambda n: G.nodes[n].get('specialization_score', 0), 
+                                     reverse=True)[:2]
+            important_nodes.extend(n for n in specialized_nodes if n not in important_nodes)
+        
+        # Add most recently active
+        recent_nodes = sorted(G.nodes, 
+                           key=lambda n: G.nodes[n].get('last_activated', 0), 
+                           reverse=True)[:2]
+        important_nodes.extend(n for n in recent_nodes if n not in important_nodes)
+        
+        # Limit to at most 5 nodes
+        important_nodes = important_nodes[:5]
         
         for node in important_nodes:
             pos_x, pos_y = pos[node]
-            plt.text(pos_x + 0.05, pos_y, node_info[node], 
-                   fontsize=8, bbox=dict(facecolor='white', alpha=0.7))
+            plt.text(pos_x + 0.1, pos_y, node_info[node], 
+                   fontsize=8, bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5'))
     
-    # Add title
-    plt.title(f"Expert Knowledge Graph (Experts: {len(G.nodes)})", 
-              fontsize=16, fontweight='bold')
+    # Add title with sleep cycle info
+    title = f"Expert Knowledge Graph (Experts: {len(G.nodes)})"
+    if hasattr(model, 'sleep_cycles_completed'):
+        title += f"\nSleep Cycles: {model.sleep_cycles_completed}"
+        if hasattr(model, 'adaptive_sleep_frequency'):
+            title += f" (Frequency: {model.adaptive_sleep_frequency} steps)"
+    
+    plt.title(title, fontsize=16, fontweight='bold')
     
     # Add legend
-    plt.text(0.01, 0.01, "Node size represents activation frequency", 
+    legend_y = 0.01
+    
+    plt.text(0.01, legend_y, "Node size: activation frequency", 
              transform=plt.gca().transAxes)
-    plt.text(0.01, 0.05, "Edge width represents connection strength", 
+    legend_y += 0.04
+    
+    plt.text(0.01, legend_y, "Edge width: connection strength", 
              transform=plt.gca().transAxes)
+    legend_y += 0.04
     
     if highlight_dormant:
-        plt.text(0.01, 0.09, "Gray nodes are dormant experts", 
+        plt.text(0.01, legend_y, "Gray nodes: dormant experts", 
                transform=plt.gca().transAxes)
+        legend_y += 0.04
+    
+    if highlight_specialization:
+        plt.text(0.01, legend_y, "Node color: darker blue = more specialized", 
+               transform=plt.gca().transAxes)
+        legend_y += 0.04
+        
+        plt.text(0.01, legend_y, "Border width: adaptation rate", 
+               transform=plt.gca().transAxes)
+        legend_y += 0.04
     
     if highlight_similar:
-        plt.text(0.01, 0.13, "Red edges indicate similar experts (candidates for merging)", 
+        plt.text(0.01, legend_y, "Red edges: similar experts (candidates for merging)", 
                transform=plt.gca().transAxes)
+        legend_y += 0.04
+        
+    # Add relation type legend
+    plt.text(0.5, 0.01, "Edge colors/styles:", 
+             transform=plt.gca().transAxes, fontweight='bold')
+    legend_y = 0.05
+    
+    plt.text(0.5, legend_y, "Blue: similarity relation", transform=plt.gca().transAxes)
+    legend_y += 0.04
+    
+    plt.text(0.5, legend_y, "Green: specialization relation", transform=plt.gca().transAxes)
+    legend_y += 0.04
+    
+    plt.text(0.5, legend_y, "Purple dashed: specialization split", transform=plt.gca().transAxes)
+    legend_y += 0.04
+    
+    plt.text(0.5, legend_y, "Orange dotted: dependency relation", transform=plt.gca().transAxes)
+    legend_y += 0.04
+    
+    plt.text(0.5, legend_y, "Red dash-dot: composition relation", transform=plt.gca().transAxes)
     
     # Remove axis
     plt.axis('off')
@@ -201,7 +328,7 @@ def plot_expert_activations(model, n_steps, output_path=None):
         
         
 def visualize_expert_lifecycle(expert_counts, creation_events, 
-                              merge_events, output_path=None):
+                              merge_events, sleep_events=None, output_path=None):
     """
     Create a visualization of the expert lifecycle during training.
     
@@ -209,6 +336,7 @@ def visualize_expert_lifecycle(expert_counts, creation_events,
         expert_counts: List of (step, count) tuples showing expert count over time
         creation_events: List of (step, count) tuples showing creation events
         merge_events: List of (step, count) tuples showing merge/prune events
+        sleep_events: List of (step, metrics) tuples showing sleep cycle events and metrics
         output_path: Path to save the visualization (if None, display instead)
     """
     # Plot expert lifecycle
@@ -234,6 +362,16 @@ def visualize_expert_lifecycle(expert_counts, creation_events,
         plt.scatter(merge_steps, counts[-len(merge_steps):], 
                    color='red', marker='v', s=100, label='Expert Merging/Pruning')
     
+    # Plot sleep cycle events
+    if sleep_events:
+        sleep_steps = [event[0] for event in sleep_events]
+        plt.scatter(sleep_steps, [counts[steps.index(s)] if s in steps else 0 for s in sleep_steps], 
+                   color='purple', marker='*', s=120, label='Sleep Cycle')
+        
+        # Add vertical lines for sleep cycles
+        for step in sleep_steps:
+            plt.axvline(x=step, color='purple', linestyle=':', alpha=0.3)
+    
     plt.xlabel('Training Step')
     plt.ylabel('Number of Experts')
     plt.title('Expert Lifecycle During Training')
@@ -246,4 +384,146 @@ def visualize_expert_lifecycle(expert_counts, creation_events,
         plt.close()
     else:
         plt.tight_layout()
+        plt.show()
+
+
+def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
+    """
+    Visualize sleep cycle metrics and performance.
+    
+    Args:
+        model: MorphModel instance with sleep cycle tracking
+        sleep_events: List of (step, metrics) tuples showing sleep cycle events and metrics
+        output_path: Path to save the visualization (if None, display instead)
+    """
+    if not hasattr(model, 'sleep_cycles_completed') or model.sleep_cycles_completed == 0:
+        logging.info("No sleep cycles completed yet, nothing to visualize")
+        return
+    
+    plt.figure(figsize=(14, 10))
+    
+    # Plot sleep cycle frequency adjustments
+    if hasattr(model, 'adaptive_sleep_frequency'):
+        plt.subplot(2, 2, 1)
+        
+        # If we have sleep events, plot the actual frequency over time
+        if sleep_events and len(sleep_events) >= 2:
+            sleep_steps = [event[0] for event in sleep_events]
+            sleep_frequencies = [sleep_steps[i] - sleep_steps[i-1] for i in range(1, len(sleep_steps))]
+            cycles = list(range(1, len(sleep_frequencies) + 1))
+            
+            plt.plot(cycles, sleep_frequencies, 'b-o', linewidth=2, markersize=8)
+            plt.axhline(y=model.config.sleep_cycle_frequency, color='gray', linestyle='--', 
+                       label='Base Frequency')
+            
+            # Add bounds if adaptive sleep is enabled
+            if model.config.enable_adaptive_sleep:
+                plt.axhline(y=model.config.min_sleep_frequency, color='red', linestyle=':', 
+                          label='Min Frequency')
+                plt.axhline(y=model.config.max_sleep_frequency, color='green', linestyle=':', 
+                          label='Max Frequency')
+        else:
+            # Just show the current adaptive frequency
+            plt.bar([1], [model.adaptive_sleep_frequency], color='blue')
+            plt.axhline(y=model.config.sleep_cycle_frequency, color='gray', linestyle='--', 
+                       label='Base Frequency')
+            
+        plt.xlabel('Sleep Cycle')
+        plt.ylabel('Steps Between Cycles')
+        plt.title('Adaptive Sleep Frequency')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+    
+    # Plot expert specialization distribution
+    plt.subplot(2, 2, 2)
+    
+    if hasattr(model, 'knowledge_graph'):
+        # Get specialization scores for all experts
+        specialization_scores = []
+        for node in model.knowledge_graph.nodes:
+            score = model.knowledge_graph.nodes[node].get('specialization_score', 0.5)
+            specialization_scores.append(score)
+        
+        # Plot histogram
+        plt.hist(specialization_scores, bins=10, range=(0, 1), alpha=0.7, color='blue')
+        plt.xlabel('Specialization Score')
+        plt.ylabel('Number of Experts')
+        plt.title('Expert Specialization Distribution')
+        plt.grid(True, alpha=0.3)
+    
+    # Plot expert adaptation rates
+    plt.subplot(2, 2, 3)
+    
+    if hasattr(model, 'knowledge_graph'):
+        # Get adaptation rates for all experts
+        adaptation_rates = []
+        expert_ids = []
+        for node in model.knowledge_graph.nodes:
+            rate = model.knowledge_graph.nodes[node].get('adaptation_rate', 1.0)
+            adaptation_rates.append(rate)
+            expert_ids.append(node)
+        
+        # Plot bar chart
+        plt.bar(expert_ids, adaptation_rates, color='green', alpha=0.7)
+        plt.xlabel('Expert ID')
+        plt.ylabel('Adaptation Rate')
+        plt.title('Expert Adaptation Rates')
+        plt.grid(True, alpha=0.3)
+    
+    # Plot expert relationships in knowledge graph
+    plt.subplot(2, 2, 4)
+    
+    if hasattr(model, 'knowledge_graph'):
+        G = model.knowledge_graph
+        
+        # Count different relation types
+        relation_counts = {}
+        
+        for e in G.edges:
+            edge_data = G.edges[e]
+            if 'relation_type' in edge_data:
+                rel_type = edge_data['relation_type']
+                if rel_type not in relation_counts:
+                    relation_counts[rel_type] = 0
+                relation_counts[rel_type] += 1
+            else:
+                # Generic edge
+                if 'generic' not in relation_counts:
+                    relation_counts['generic'] = 0
+                relation_counts['generic'] += 1
+        
+        # Plot pie chart if we have relations
+        if relation_counts:
+            labels = list(relation_counts.keys())
+            sizes = [relation_counts[k] for k in labels]
+            
+            # Define nice colors for each relation type
+            colors = {
+                'similarity': 'blue',
+                'specialization': 'green',
+                'specialization_split': 'purple',
+                'dependency': 'orange',
+                'composition': 'red',
+                'generic': 'gray'
+            }
+            
+            # Use defined colors or default to a color cycle
+            pie_colors = [colors.get(label, 'gray') for label in labels]
+            
+            plt.pie(sizes, labels=labels, colors=pie_colors, autopct='%1.1f%%',
+                   shadow=True, startangle=90)
+            plt.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle
+            plt.title('Expert Relationship Types')
+        else:
+            plt.text(0.5, 0.5, "No relationships defined yet", 
+                    ha='center', va='center', fontsize=12)
+            plt.axis('off')
+    
+    plt.tight_layout()
+    
+    # Save or show
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    else:
         plt.show()

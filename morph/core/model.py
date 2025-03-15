@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import networkx as nx
+import numpy as np
 import logging
 import copy
 from typing import List, Dict, Tuple, Optional, Any
@@ -63,11 +64,22 @@ class MorphModel(nn.Module):
         # Initialize knowledge graph
         self.knowledge_graph = nx.Graph()
         for i in range(config.num_initial_experts):
-            self.knowledge_graph.add_node(i, activation_count=0, last_activated=0)
+            self.knowledge_graph.add_node(i, activation_count=0, last_activated=0, 
+                                         specialization_score=0.0, adaptation_rate=1.0)
         
         # Activation buffer for sleep cycle
         self.activation_buffer = []
-        self.buffer_size = 1000  # Max number of activations to store
+        self.buffer_size = 2000  # Max number of activations to store
+        
+        # Sleep cycle metrics and scheduling
+        self.sleep_cycles_completed = 0
+        self.next_sleep_step = config.sleep_cycle_frequency
+        self.adaptive_sleep_frequency = config.sleep_cycle_frequency  # Will be adjusted dynamically
+        self.sleep_performance_history = []  # Track model improvements after sleep
+        
+        # Expert specialization metrics
+        self.expert_input_distributions = {i: {} for i in range(config.num_initial_experts)}
+        self.expert_performance_history = {i: [] for i in range(config.num_initial_experts)}
     
     def forward(self, x, training=True):
         """
@@ -130,19 +142,37 @@ class MorphModel(nn.Module):
                 
                 # Store activation for sleep cycle if training
                 if training and len(self.activation_buffer) < self.buffer_size:
-                    self.activation_buffer.append({
-                        'expert_idx': expert_idx.item(),
-                        'inputs': expert_inputs.detach().cpu(),
-                        'routing_weight': weights[mask].mean().item()
-                    })
+                    # Compute and store expert performance
+                    with torch.no_grad():
+                        correct_output = expert_outputs.argmax(dim=1)
+                        # Store activation with metadata
+                        self.activation_buffer.append({
+                            'expert_idx': expert_idx.item(),
+                            'inputs': expert_inputs.detach().cpu(),
+                            'outputs': expert_outputs.detach().cpu(),
+                            'routing_weight': weights[mask].mean().item(),
+                            'step': self.step_count,
+                            'batch_size': expert_inputs.size(0),
+                            'input_features': torch.mean(expert_inputs, dim=0).detach().cpu(),  # Feature summary
+                            'uncertainty': uncertainty.item() if uncertainty is not None else 0.0
+                        })
+                        
+                    # Track input distribution for specialization analysis
+                    if expert_idx.item() in self.expert_input_distributions:
+                        input_features = torch.mean(expert_inputs, dim=0).detach().cpu().numpy()
+                        feature_hash = hash(str(np.round(input_features, 2)))
+                        
+                        if feature_hash in self.expert_input_distributions[expert_idx.item()]:
+                            self.expert_input_distributions[expert_idx.item()][feature_hash] += 1
+                        else:
+                            self.expert_input_distributions[expert_idx.item()][feature_hash] = 1
         
         # Increment step counter
         if training:
             self.step_count += 1
             
-            # Maybe trigger sleep cycle
-            if (self.config.enable_sleep and 
-                self.step_count % self.config.sleep_cycle_frequency == 0):
+            # Maybe trigger sleep cycle using adaptive scheduling
+            if (self.config.enable_sleep and self.step_count >= self.next_sleep_step):
                 self.sleep()
         
         return outputs
@@ -189,25 +219,35 @@ class MorphModel(nn.Module):
         Perform a sleep cycle to consolidate knowledge.
         
         This includes:
-        1. Replaying stored activations
-        2. Merging similar experts
-        3. Pruning dormant experts
+        1. Replaying stored activations for memory consolidation
+        2. Analyzing expert specialization
+        3. Merging similar experts
+        4. Pruning dormant experts
+        5. Reorganizing experts based on activation patterns
         """
         logging.info(f"Starting sleep cycle at step {self.step_count}")
         
-        # 1. Memory replay (just log for now)
-        logging.info(f"Memory replay: {len(self.activation_buffer)} samples")
-        self.activation_buffer = []  # Clear buffer after replay
+        # 1. Memory replay with expert fine-tuning
+        self._perform_memory_replay()
         
-        # 2. Find and merge similar experts
+        # 2. Analyze expert specialization
+        specialization_metrics = self._analyze_expert_specialization()
+        
+        # 3. Find and merge similar experts
         merged_any = self._merge_similar_experts()
         
-        # 3. Prune dormant experts
+        # 4. Prune dormant experts
         pruned_any = self._prune_dormant_experts()
         
-        if merged_any or pruned_any:
-            # Rebuild knowledge graph if network changed
+        # 5. Reorganize experts based on activation patterns
+        reorganized = self._reorganize_experts(specialization_metrics)
+        
+        # Rebuild knowledge graph if network changed
+        if merged_any or pruned_any or reorganized:
             self._rebuild_knowledge_graph()
+            
+        # Adaptive sleep scheduling
+        self._update_sleep_schedule()
     
     def _merge_similar_experts(self):
         """
@@ -386,6 +426,284 @@ class MorphModel(nn.Module):
         
         return False
     
+    def _perform_memory_replay(self):
+        """
+        Perform memory replay by replaying stored activations to experts.
+        This helps with memory consolidation and expert fine-tuning.
+        
+        Returns:
+            Boolean indicating whether replay was performed
+        """
+        if not self.activation_buffer:
+            logging.info("Memory replay: No activations in buffer to replay")
+            return False
+            
+        logging.info(f"Memory replay: Processing {len(self.activation_buffer)} stored activations")
+        
+        # Create optimizer for expert fine-tuning during replay
+        optimizers = {
+            i: torch.optim.Adam(expert.parameters(), lr=0.0001) 
+            for i, expert in enumerate(self.experts)
+        }
+        
+        # Group activations by expert
+        expert_activations = {}
+        for activation in self.activation_buffer:
+            expert_idx = activation['expert_idx']
+            if expert_idx not in expert_activations:
+                expert_activations[expert_idx] = []
+            expert_activations[expert_idx].append(activation)
+        
+        # Process each expert's activations
+        for expert_idx, activations in expert_activations.items():
+            # Skip if expert no longer exists (was merged/pruned)
+            if expert_idx >= len(self.experts):
+                continue
+                
+            expert = self.experts[expert_idx]
+            optimizer = optimizers.get(expert_idx)
+            
+            # Skip if no optimizer (should not happen)
+            if optimizer is None:
+                continue
+                
+            # Determine adaptation rate based on expert specialization
+            adaptation_rate = self.knowledge_graph.nodes[expert_idx].get('adaptation_rate', 1.0)
+            
+            # Replay samples in mini-batches
+            num_samples = len(activations)
+            batch_size = min(32, num_samples)
+            
+            for batch_start in range(0, num_samples, batch_size):
+                batch_end = min(batch_start + batch_size, num_samples)
+                batch = activations[batch_start:batch_end]
+                
+                # Prepare batch data
+                input_batch = torch.cat([a['inputs'] for a in batch])
+                output_batch = torch.cat([a['outputs'] for a in batch])
+                
+                # Expert fine-tuning
+                optimizer.zero_grad()
+                
+                # Forward pass through expert
+                predictions = expert(input_batch)
+                
+                # Self-supervised loss (match previous outputs)
+                # Using cosine similarity to preserve output patterns
+                loss = 1.0 - F.cosine_similarity(
+                    predictions.view(predictions.size(0), -1), 
+                    output_batch.view(output_batch.size(0), -1)
+                ).mean()
+                
+                # Scale loss by adaptation rate
+                loss = loss * adaptation_rate
+                
+                # Backward pass and optimize
+                loss.backward()
+                optimizer.step()
+        
+        # Clear activation buffer after replay
+        self.activation_buffer = []
+        
+        return True
+        
+    def _analyze_expert_specialization(self):
+        """
+        Analyze expert specialization based on input distributions and performance.
+        
+        Returns:
+            Dict of expert specialization metrics
+        """
+        metrics = {}
+        
+        for i, expert in enumerate(self.experts):
+            # Skip if expert no longer exists
+            if i >= len(self.experts):
+                continue
+                
+            # Calculate input distribution entropy
+            # Higher entropy = less specialized (handles more varied inputs)
+            input_dist = self.expert_input_distributions.get(i, {})
+            if input_dist:
+                counts = np.array(list(input_dist.values()))
+                probs = counts / counts.sum()
+                entropy = -np.sum(probs * np.log(probs + 1e-10))
+                
+                # Normalize to [0,1] assuming max entropy is log(len(counts))
+                max_entropy = np.log(len(counts))
+                if max_entropy > 0:
+                    normalized_entropy = entropy / max_entropy
+                else:
+                    normalized_entropy = 0.0
+                    
+                # Specialization score is inverse of normalized entropy
+                # Higher score = more specialized
+                specialization_score = 1.0 - normalized_entropy
+            else:
+                # No data, assume default specialization
+                specialization_score = 0.5
+                
+            # Store in metrics
+            metrics[i] = {
+                'specialization_score': specialization_score,
+                'activation_count': self.knowledge_graph.nodes[i]['activation_count'],
+                'unique_inputs': len(input_dist)
+            }
+            
+            # Update knowledge graph with specialization score
+            self.knowledge_graph.nodes[i]['specialization_score'] = specialization_score
+            
+            # Determine adaptation rate based on specialization
+            # More specialized experts should adapt more slowly to preserve knowledge
+            adaptation_rate = 1.0 - (0.5 * specialization_score)  # Between 0.5 and 1.0
+            self.knowledge_graph.nodes[i]['adaptation_rate'] = adaptation_rate
+            
+        return metrics
+        
+    def _reorganize_experts(self, specialization_metrics):
+        """
+        Reorganize experts based on activation patterns and specialization.
+        
+        Args:
+            specialization_metrics: Dict of expert specialization metrics
+            
+        Returns:
+            Boolean indicating whether any reorganization occurred
+        """
+        # Skip reorganization if disabled or not enough experts
+        if not specialization_metrics or len(self.experts) <= 2:
+            return False
+            
+        # Skip if expert reorganization is disabled in config
+        if hasattr(self.config, 'enable_expert_reorganization') and not self.config.enable_expert_reorganization:
+            return False
+            
+        reorganized = False
+        
+        # Find experts with overlapping specializations
+        overlaps = []
+        for i in range(len(self.experts)):
+            for j in range(i+1, len(self.experts)):
+                # Skip if either expert no longer exists
+                if i >= len(self.experts) or j >= len(self.experts):
+                    continue
+                    
+                # Calculate input distribution overlap
+                dist_i = self.expert_input_distributions.get(i, {})
+                dist_j = self.expert_input_distributions.get(j, {})
+                
+                if not dist_i or not dist_j:
+                    continue
+                    
+                # Find common input features
+                common_features = set(dist_i.keys()) & set(dist_j.keys())
+                total_features = set(dist_i.keys()) | set(dist_j.keys())
+                
+                # Calculate Jaccard similarity of input spaces
+                if total_features:
+                    overlap = len(common_features) / len(total_features)
+                else:
+                    overlap = 0.0
+                    
+                # Store overlap if significant
+                if overlap > 0.3:  # Threshold for considering overlap
+                    overlaps.append((i, j, overlap))
+        
+        # Sort overlaps by significance
+        overlaps.sort(key=lambda x: x[2], reverse=True)
+        
+        # Process overlaps
+        for i, j, overlap in overlaps:
+            # Skip if either expert was already processed
+            if i >= len(self.experts) or j >= len(self.experts):
+                continue
+                
+            # Get specialization scores
+            score_i = specialization_metrics[i]['specialization_score']
+            score_j = specialization_metrics[j]['specialization_score']
+            
+            # If both are highly specialized but overlapping, adjust specialization
+            if score_i > 0.7 and score_j > 0.7 and overlap > 0.5:
+                logging.info(f"Reorganizing overlapping specialized experts {i} and {j}")
+                
+                # Pick the expert with higher activation count to keep its specialization
+                if self.knowledge_graph.nodes[i]['activation_count'] > self.knowledge_graph.nodes[j]['activation_count']:
+                    keeper, adjuster = i, j
+                else:
+                    keeper, adjuster = j, i
+                    
+                # Connect experts with strong edge to indicate specialization relationship
+                self.knowledge_graph.add_edge(keeper, adjuster, weight=0.9, 
+                                              relation_type="specialization_split")
+                
+                reorganized = True
+                
+        # Update knowledge graph edges based on specialization
+        for i in range(len(self.experts)):
+            for j in range(i+1, len(self.experts)):
+                # Skip if either expert no longer exists
+                if i >= len(self.experts) or j >= len(self.experts):
+                    continue
+                    
+                # If both are highly specialized, add edge to indicate specialization relationship
+                score_i = specialization_metrics[i]['specialization_score']
+                score_j = specialization_metrics[j]['specialization_score']
+                
+                # Update edge weight based on specialization similarity
+                spec_similarity = 1.0 - abs(score_i - score_j)
+                if self.knowledge_graph.has_edge(i, j):
+                    # Update existing edge
+                    current_weight = self.knowledge_graph[i][j].get('weight', 0.5)
+                    new_weight = (current_weight + spec_similarity) / 2
+                    self.knowledge_graph[i][j]['weight'] = new_weight
+                else:
+                    # Add new edge
+                    self.knowledge_graph.add_edge(i, j, weight=spec_similarity, 
+                                                 relation_type="specialization_similarity")
+                
+        return reorganized
+    
+    def _update_sleep_schedule(self):
+        """
+        Update the adaptive sleep scheduling based on model performance.
+        """
+        # Increment sleep cycle counter
+        self.sleep_cycles_completed += 1
+        
+        # Calculate next sleep step
+        base_frequency = self.config.sleep_cycle_frequency
+        
+        # Dynamic adjustment of sleep frequency based on model state
+        expert_count = len(self.experts)
+        
+        # Increase frequency if we have many experts
+        if expert_count > self.config.num_initial_experts * 2:
+            frequency_factor = 0.7  # Sleep more often
+        # Decrease frequency if we have few experts
+        elif expert_count < self.config.num_initial_experts:
+            frequency_factor = 1.5  # Sleep less often
+        else:
+            frequency_factor = 1.0  # Default
+            
+        # Use previous performance improvements to adjust frequency
+        if len(self.sleep_performance_history) >= 2:
+            recent_improvements = self.sleep_performance_history[-1]
+            if recent_improvements > 0.05:  # Significant improvement
+                frequency_factor *= 0.8  # Sleep more often
+            elif recent_improvements < 0.01:  # Little improvement
+                frequency_factor *= 1.2  # Sleep less often
+                
+        # Apply adjustment with bounds
+        adjusted_frequency = max(int(base_frequency * frequency_factor), base_frequency // 2)
+        adjusted_frequency = min(adjusted_frequency, base_frequency * 2)
+        
+        # Set next sleep step
+        self.adaptive_sleep_frequency = adjusted_frequency
+        self.next_sleep_step = self.step_count + adjusted_frequency
+        
+        logging.info(f"Updated sleep schedule: next sleep at step {self.next_sleep_step} " +
+                   f"(frequency: {self.adaptive_sleep_frequency}, completed cycles: {self.sleep_cycles_completed})")
+        
     def _rebuild_knowledge_graph(self):
         """
         Rebuild the knowledge graph after merging or pruning.
@@ -401,7 +719,8 @@ class MorphModel(nn.Module):
                 new_graph.add_node(i, **node_data)
             else:
                 # New node with default data
-                new_graph.add_node(i, activation_count=0, last_activated=self.step_count)
+                new_graph.add_node(i, activation_count=0, last_activated=self.step_count,
+                                 specialization_score=0.5, adaptation_rate=1.0)
         
         # Copy edges between existing experts
         for i in range(len(self.experts)):
@@ -415,3 +734,13 @@ class MorphModel(nn.Module):
         
         # Update gating network for new expert count
         self.gating.update_num_experts(len(self.experts))
+        
+        # Update expert tracking structures
+        self.expert_input_distributions = {
+            i: self.expert_input_distributions.get(i, {}) 
+            for i in range(len(self.experts))
+        }
+        self.expert_performance_history = {
+            i: self.expert_performance_history.get(i, []) 
+            for i in range(len(self.experts))
+        }

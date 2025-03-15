@@ -29,6 +29,15 @@ class Expert(nn.Module):
         self.activation_count = 0
         self.last_activated = 0  # Will store training step
         
+        # Specialization tracking
+        self.specialization_score = 0.5  # 0.0 = general, 1.0 = specialized
+        self.input_feature_history = {}  # Map of feature hash to count
+        self.input_feature_centroid = None  # Representative centroid of inputs
+        
+        # Performance tracking
+        self.performance_history = []  # List of (step, loss) tuples
+        self.confidence_score = 0.5  # 0.0 = unconfident, 1.0 = confident
+        
         # Build layers
         layers = []
         layers.append(nn.Linear(input_size, hidden_size))
@@ -41,18 +50,40 @@ class Expert(nn.Module):
         layers.append(nn.Linear(hidden_size, output_size))
         
         self.network = nn.Sequential(*layers)
+        
+        # Store architecture parameters for cloning
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+        self.output_size = output_size
+        self.num_layers = num_layers
     
-    def forward(self, x):
+    def forward(self, x, update_stats=True):
         """
         Forward pass through the expert.
         
         Args:
             x: Input tensor
+            update_stats: Whether to update expert statistics
             
         Returns:
             Expert output
         """
-        self.activation_count += 1
+        if update_stats:
+            self.activation_count += 1
+            
+            # Update input feature statistics if not in sleep mode
+            if x.size(0) <= 32:  # Don't track large batch statistics for memory efficiency
+                with torch.no_grad():
+                    # Compute mean input feature vector (simple summary)
+                    mean_features = torch.mean(x, dim=0).detach().cpu()
+                    
+                    # Update running centroid
+                    if self.input_feature_centroid is None:
+                        self.input_feature_centroid = mean_features
+                    else:
+                        # Exponential moving average update
+                        self.input_feature_centroid = 0.95 * self.input_feature_centroid + 0.05 * mean_features
+        
         return self.network(x)
     
     def clone(self):
@@ -63,12 +94,13 @@ class Expert(nn.Module):
         Returns:
             A new Expert instance
         """
-        input_size = self.network[0].in_features
-        hidden_size = self.network[0].out_features
-        output_size = self.network[-1].out_features
-        num_layers = (len(self.network) - 1) // 2
+        new_expert = Expert(self.input_size, self.hidden_size, self.output_size, self.num_layers)
         
-        return Expert(input_size, hidden_size, output_size, num_layers)
+        # Copy centroid (to preserve specialization starting point)
+        if self.input_feature_centroid is not None:
+            new_expert.input_feature_centroid = self.input_feature_centroid.clone()
+            
+        return new_expert
     
     def get_parameter_similarity(self, other_expert):
         """
@@ -86,3 +118,63 @@ class Expert(nn.Module):
         
         # Compute cosine similarity
         return F.cosine_similarity(params1.unsqueeze(0), params2.unsqueeze(0))[0]
+    
+    def get_specialization_score(self):
+        """
+        Calculate a specialization score for this expert.
+        
+        Higher scores indicate more specialized experts (focused on specific input patterns).
+        Lower scores indicate more general experts.
+        
+        Returns:
+            Specialization score between 0 and 1
+        """
+        return self.specialization_score
+    
+    def get_centroid_similarity(self, other_expert):
+        """
+        Compute similarity between this expert's input centroid and another expert's.
+        
+        This helps determine if experts are specializing in similar input domains.
+        
+        Args:
+            other_expert: Another Expert instance to compare with
+            
+        Returns:
+            Similarity score between 0 and 1, or None if centroids not available
+        """
+        if self.input_feature_centroid is None or other_expert.input_feature_centroid is None:
+            return None
+            
+        # Compute cosine similarity between centroids
+        return F.cosine_similarity(
+            self.input_feature_centroid.unsqueeze(0),
+            other_expert.input_feature_centroid.unsqueeze(0)
+        )[0]
+    
+    def update_confidence(self, loss_value):
+        """
+        Update the expert's confidence score based on loss values.
+        
+        Args:
+            loss_value: The loss value from a recent forward pass
+            
+        Returns:
+            Updated confidence score
+        """
+        # Keep history limited to recent performance
+        MAX_HISTORY = 100
+        self.performance_history.append(loss_value)
+        if len(self.performance_history) > MAX_HISTORY:
+            self.performance_history = self.performance_history[-MAX_HISTORY:]
+            
+        # Calculate confidence based on recent loss trend
+        if len(self.performance_history) >= 10:
+            recent_losses = self.performance_history[-10:]
+            avg_loss = sum(recent_losses) / len(recent_losses)
+            
+            # Normalize to a confidence score (lower loss = higher confidence)
+            # Assuming loss values are typically in [0, 2] range
+            self.confidence_score = max(0.0, min(1.0, 1.0 - (avg_loss / 2.0)))
+        
+        return self.confidence_score
