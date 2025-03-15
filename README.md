@@ -41,9 +41,8 @@ graph TD
     
     KG --> |Update Routing| Gating
     
-    class Sleep Cycle sleep;
-    
     classDef sleep fill:#f9f,stroke:#333,stroke-width:2px;
+    class "Sleep Cycle" sleep;
 ```
 
 MORPH consists of four main components:
