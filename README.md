@@ -17,10 +17,10 @@ MORPH is a novel neural network architecture implementing a **Dynamic Mixture of
 ```mermaid
 graph TD
     Input[Input Data] --> Gating[Gating Network]
-    Gating --> |Route| E1[Expert 1]
-    Gating --> |Route| E2[Expert 2]
-    Gating --> |Route| E3[Expert 3]
-    Gating --> |Route| EN[Expert N]
+    Gating --> E1[Expert 1]
+    Gating --> E2[Expert 2]
+    Gating --> E3[Expert 3]
+    Gating --> EN[Expert N]
     
     E1 --> Combine[Output Combination]
     E2 --> Combine
@@ -29,20 +29,20 @@ graph TD
     
     Combine --> Output[Final Output]
     
-    Gating --> |High Uncertainty| Create[Create New Expert]
+    Gating --> Create[Create New Expert]
     Create --> KG[Knowledge Graph]
     
-    subgraph "Sleep Cycle"
-        KG --> |Periodic| Merge[Merge Similar Experts]
-        KG --> |Periodic| Prune[Prune Dormant Experts]
+    subgraph Sleep[Sleep Cycle]
+        KG --> Merge[Merge Experts]
+        KG --> Prune[Prune Experts]
         Merge --> KG
         Prune --> KG
     end
     
-    KG --> |Update Routing| Gating
+    KG --> Gating
     
-    classDef sleep fill:#f9f,stroke:#333,stroke-width:2px;
-    class "Sleep Cycle" sleep;
+    classDef sleepStyle fill:#f9f,stroke:#333;
+    class Sleep sleepStyle;
 ```
 
 MORPH consists of four main components:
@@ -108,24 +108,21 @@ MORPH is being implemented in four phases:
 ```mermaid
 gantt
     title MORPH Implementation Progress
-    dateFormat  YYYY-MM-DD
-    section Phase 1: Basic MoE
+    dateFormat YYYY-MM-DD
+    section Phase 1
     Core expert implementation   :done, p1_1, 2025-01-15, 2025-02-01
     Basic gating network         :done, p1_2, 2025-02-01, 2025-02-15
     Routing mechanism            :active, p1_3, 2025-02-15, 2025-03-01
     Evaluation framework         :pending, p1_4, 2025-03-01, 2025-03-15
-    
-    section Phase 2: Dynamic Experts
+    section Phase 2
     Uncertainty metrics          :pending, p2_1, 2025-03-15, 2025-04-01
     Expert initialization        :pending, p2_2, 2025-04-01, 2025-04-15
     Knowledge graph (basic)      :pending, p2_3, 2025-04-15, 2025-05-01
-    
-    section Phase 3: Optimization
+    section Phase 3
     Expert similarity metrics    :pending, p3_1, 2025-05-01, 2025-05-15
     Merging algorithm            :pending, p3_2, 2025-05-15, 2025-06-01
     Pruning mechanism            :pending, p3_3, 2025-06-01, 2025-06-15
-    
-    section Phase 4: Sleep Function
+    section Phase 4
     Memory replay system         :pending, p4_1, 2025-06-15, 2025-07-01
     Expert reorganization        :pending, p4_2, 2025-07-01, 2025-07-15
     Sleep cycle scheduler        :pending, p4_3, 2025-07-15, 2025-08-01
@@ -152,47 +149,40 @@ See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
 ## Visualization of the MORPH Approach
 
 ```mermaid
-flowchart LR
-    subgraph "Training Process"
-        direction TB
-        Data[New Data] --> Gating
-        Gating[Gating Network] --> E1 & E2 & E3 & ENew
+graph LR
+    subgraph Train["Training Process"]
+        Data[New Data] --> Gating[Gating Network]
+        Gating --> E1[Expert 1]
+        Gating --> E2[Expert 2]
+        Gating --> E3[Expert 3]
         Gating --> |uncertainty > threshold| Create[Create New Expert]
-        Create --> ENew[New Expert]
-        E1[Expert 1] & E2[Expert 2] & E3[Expert 3] & ENew --> Combine[Combine Outputs]
-        Combine --> Loss[Loss Computation]
-        Loss --> |Backprop| E1 & E2 & E3 & ENew
-        Loss --> |Update| Gating
+        E1 --> Combine[Output Combination]
+        E2 --> Combine
+        E3 --> Combine
+        Combine --> Output[Final Output]
     end
     
-    subgraph "Knowledge Graph Evolution"
-        direction TB
-        KG1[Initial Graph] --> |New Expert| KG2[Expanded Graph]
-        KG2 --> |Sleep Cycle| KG3[Optimized Graph]
-        KG3 --> |Continuous Learning| KG4[Evolved Graph]
+    subgraph KGraph["Knowledge Graph"]
+        KG[Graph Structure]
     end
     
-    subgraph "Sleep Cycle"
-        direction TB
-        Replay[Memory Replay] --> Similar[Find Similar Experts]
-        Similar --> Merge[Merge Experts]
-        Replay --> Inactive[Find Inactive Experts]
-        Inactive --> Prune[Prune Experts]
-        Merge & Prune --> Update[Update Knowledge Graph]
+    subgraph Sleep["Sleep Cycle"]
+        Merge[Merge Experts]
+        Prune[Prune Experts]
     end
     
-    Training -->|Triggers| Sleep
-    Sleep -->|Improves| Training
-    Knowledge -->|Guides| Training
-    Training -->|Updates| Knowledge
+    Train --> Sleep
+    Sleep --> Train
+    KGraph --> Train
+    Train --> KGraph
     
-    classDef training fill:#d4f1f9,stroke:#333;
-    classDef knowledge fill:#e1d5e7,stroke:#333;
-    classDef sleep fill:#f9d6ff,stroke:#333;
+    classDef trainStyle fill:#d4f1f9,stroke:#333;
+    classDef kgStyle fill:#e1d5e7,stroke:#333;
+    classDef sleepStyle fill:#f9d6ff,stroke:#333;
     
-    class Training training;
-    class Knowledge knowledge;
-    class Sleep sleep;
+    class Train trainStyle;
+    class KGraph kgStyle;
+    class Sleep sleepStyle;
 ```
 
 The diagram above shows how the three key mechanisms of MORPH (training, knowledge graph management, and sleep cycles) interact to create a dynamic, adaptive system.
