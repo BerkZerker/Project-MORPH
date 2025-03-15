@@ -41,7 +41,7 @@ graph TD
     
     KG --> Gating
     
-    classDef sleepStyle fill:#f9f,stroke:#333;
+    classDef sleepStyle fill:#f9d6ff,stroke:#333;
     class Sleep sleepStyle;
 ```
 
@@ -109,23 +109,27 @@ MORPH is being implemented in four phases:
 gantt
     title MORPH Implementation Progress
     dateFormat YYYY-MM-DD
+    
     section Phase 1
     Core expert implementation   :done, p1_1, 2025-01-15, 2025-02-01
     Basic gating network         :done, p1_2, 2025-02-01, 2025-02-15
     Routing mechanism            :active, p1_3, 2025-02-15, 2025-03-01
-    Evaluation framework         :pending, p1_4, 2025-03-01, 2025-03-15
+    Evaluation framework         :p1_4, 2025-03-01, 2025-03-15
+    
     section Phase 2
-    Uncertainty metrics          :pending, p2_1, 2025-03-15, 2025-04-01
-    Expert initialization        :pending, p2_2, 2025-04-01, 2025-04-15
-    Knowledge graph (basic)      :pending, p2_3, 2025-04-15, 2025-05-01
+    Uncertainty metrics          :p2_1, 2025-03-15, 2025-04-01
+    Expert initialization        :p2_2, 2025-04-01, 2025-04-15
+    Knowledge graph (basic)      :p2_3, 2025-04-15, 2025-05-01
+    
     section Phase 3
-    Expert similarity metrics    :pending, p3_1, 2025-05-01, 2025-05-15
-    Merging algorithm            :pending, p3_2, 2025-05-15, 2025-06-01
-    Pruning mechanism            :pending, p3_3, 2025-06-01, 2025-06-15
+    Expert similarity metrics    :p3_1, 2025-05-01, 2025-05-15
+    Merging algorithm            :p3_2, 2025-05-15, 2025-06-01
+    Pruning mechanism            :p3_3, 2025-06-01, 2025-06-15
+    
     section Phase 4
-    Memory replay system         :pending, p4_1, 2025-06-15, 2025-07-01
-    Expert reorganization        :pending, p4_2, 2025-07-01, 2025-07-15
-    Sleep cycle scheduler        :pending, p4_3, 2025-07-15, 2025-08-01
+    Memory replay system         :p4_1, 2025-06-15, 2025-07-01
+    Expert reorganization        :p4_2, 2025-07-01, 2025-07-15
+    Sleep cycle scheduler        :p4_3, 2025-07-15, 2025-08-01
 ```
 
 Current status:
@@ -155,7 +159,7 @@ graph LR
         Gating --> E1[Expert 1]
         Gating --> E2[Expert 2]
         Gating --> E3[Expert 3]
-        Gating --> |uncertainty > threshold| Create[Create New Expert]
+        Gating -->|uncertainty > threshold| Create[Create New Expert]
         E1 --> Combine[Output Combination]
         E2 --> Combine
         E3 --> Combine
