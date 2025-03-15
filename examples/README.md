@@ -46,7 +46,36 @@ Results will be saved to the `results/continual/` directory, including:
 - Knowledge graph evolution
 - Comprehensive metrics on expert utilization and task performance
 
-### 3. Multi-Domain Adaptation (Coming Soon)
+### 3. Performance Benchmarking (`benchmark_example.py`)
+
+An example that benchmarks MORPH against baseline methods for continual learning:
+
+- Compares MORPH against standard networks and Elastic Weight Consolidation (EWC)
+- Tests on multiple continual learning scenarios (rotating, split, and permuted MNIST)
+- Measures catastrophic forgetting and overall performance
+- Visualizes results across tasks and models
+
+To run this example:
+
+```bash
+python benchmark_example.py --type rotating --tasks 5
+```
+
+Results will be saved to the `results/benchmarks/` directory, including:
+- Comparison charts of performance metrics
+- Saved model weights for further analysis
+- Detailed logging of benchmark results
+
+### 4. Sleep Module (`sleep_module_example.py`)
+
+An example demonstrating the Sleep Module's memory consolidation capabilities:
+
+- Memory replay and knowledge consolidation
+- Expert reorganization during sleep cycles
+- Analysis of sleep cycle effects on model performance
+- Visualization of expert merging and specialization
+
+### 5. Multi-Domain Adaptation (Coming Soon)
 
 An example showing how MORPH can adapt to different data domains:
 

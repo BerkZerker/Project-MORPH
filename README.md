@@ -74,12 +74,15 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
+
+# Install development dependencies (for contributing)
+pip install -e ".[dev]"
 ```
 
 ### Example Usage
 
 ```python
-from morph.core import MorphModel
+from morph.core.model import MorphModel
 from morph.config import MorphConfig
 
 # Initialize MORPH model
@@ -196,6 +199,35 @@ This example:
 - [Architecture Design](docs/architecture.md)
 - [API Reference](docs/api.md)
 - [Examples](examples/README.md)
+
+## Development
+
+### Build & Test Commands
+
+```bash
+# Run all tests
+python -m pytest tests/
+
+# Run a specific test file
+python -m pytest tests/test_expert.py
+
+# Run a specific test
+python -m pytest tests/test_expert.py::test_expert_initialization
+
+# Format code with Black
+python -m black morph/ tests/
+
+# Sort imports
+python -m isort morph/ tests/
+
+# Run type checking
+python -m mypy morph/
+
+# Run linting
+python -m flake8 morph/ tests/
+```
+
+See [CLAUDE.md](CLAUDE.md) for more detailed development guidelines.
 
 ## Visualization of the MORPH Approach
 

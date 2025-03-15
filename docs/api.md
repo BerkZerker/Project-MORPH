@@ -2,7 +2,7 @@
 
 ## Core Modules
 
-### `morph.core.MorphModel`
+### `morph.core.model.MorphModel`
 
 The main model class that implements the MORPH architecture.
 
@@ -47,7 +47,7 @@ model = MorphModel(config)
 - `adaptive_sleep_frequency`: Current sleep frequency after adaptation
 - `next_sleep_step`: Step at which the next sleep cycle will be triggered
 
-### `morph.core.Expert`
+### `morph.core.expert.Expert`
 
 Individual expert network that specializes in a particular subset of data.
 
@@ -85,7 +85,7 @@ expert = Expert(input_size, hidden_size, output_size, num_layers=2)
   - `loss_value`: Loss value from a recent forward pass
   - Returns: Updated confidence score
 
-### `morph.core.GatingNetwork`
+### `morph.core.gating.GatingNetwork`
 
 Gating network that determines which experts to use for a given input.
 
@@ -112,7 +112,7 @@ gating = GatingNetwork(input_size, num_experts, k=2, routing_type="top_k")
 - `update_num_experts(num_experts)`: Update the gating network when number of experts changes
   - `num_experts`: New number of experts
 
-### `morph.core.KnowledgeGraph`
+### `morph.core.knowledge_graph.KnowledgeGraph`
 
 Manages the relationships between experts, concept specialization, and expert similarities.
 
@@ -183,7 +183,7 @@ kg = KnowledgeGraph(config)
 - `rebuild_graph(expert_count)`: Rebuild the knowledge graph after expert count changes
   - `expert_count`: New expert count
 
-### `morph.core.SleepModule`
+### `morph.core.sleep.SleepModule`
 
 Implements the 'sleep' phase of the model for knowledge consolidation.
 
