@@ -284,7 +284,7 @@ If you use MORPH in your research, please cite:
 
 ```bibtex
 @misc{morph2025,
-  author = {Project MORPH Contributors},
+  author = {Berkebile, Samuel},
   title = {MORPH: Mixture Of experts with Recursive Post-processing & Hierarchy},
   year = {2025},
   publisher = {GitHub},
