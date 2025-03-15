@@ -22,8 +22,17 @@ class MorphConfig:
     # Sleep cycle
     enable_sleep: bool = True
     sleep_cycle_frequency: int = 1000  # Steps between sleep cycles
+    
+    # Expert merging
     expert_similarity_threshold: float = 0.8  # Threshold for merging experts
+    
+    # Expert pruning
     dormant_steps_threshold: int = 5000  # Steps of inactivity before pruning
+    min_lifetime_activations: int = 100  # Minimum activations to avoid pruning
+    
+    # Knowledge graph
+    knowledge_edge_decay: float = 0.99  # Decay factor for edge weights
+    knowledge_edge_min: float = 0.1  # Minimum edge weight before pruning
     
     # Training
     learning_rate: float = 0.001

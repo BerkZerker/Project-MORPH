@@ -113,21 +113,21 @@ gantt
     section Phase 1
     Core expert implementation   :done, p1_1, 2025-01-15, 2025-02-01
     Basic gating network         :done, p1_2, 2025-02-01, 2025-02-15
-    Routing mechanism            :active, p1_3, 2025-02-15, 2025-03-01
-    Evaluation framework         :p1_4, 2025-03-01, 2025-03-15
+    Routing mechanism            :done, p1_3, 2025-02-15, 2025-03-01
+    Evaluation framework         :done, p1_4, 2025-03-01, 2025-03-15
     
     section Phase 2
-    Uncertainty metrics          :p2_1, 2025-03-15, 2025-04-01
-    Expert initialization        :p2_2, 2025-04-01, 2025-04-15
-    Knowledge graph (basic)      :p2_3, 2025-04-15, 2025-05-01
+    Uncertainty metrics          :done, p2_1, 2025-03-15, 2025-04-01
+    Expert initialization        :done, p2_2, 2025-04-01, 2025-04-15
+    Knowledge graph (basic)      :done, p2_3, 2025-04-15, 2025-05-01
     
     section Phase 3
-    Expert similarity metrics    :p3_1, 2025-05-01, 2025-05-15
-    Merging algorithm            :p3_2, 2025-05-15, 2025-06-01
-    Pruning mechanism            :p3_3, 2025-06-01, 2025-06-15
+    Expert similarity metrics    :done, p3_1, 2025-05-01, 2025-05-15
+    Merging algorithm            :done, p3_2, 2025-05-15, 2025-06-01
+    Pruning mechanism            :done, p3_3, 2025-06-01, 2025-06-15
     
     section Phase 4
-    Memory replay system         :p4_1, 2025-06-15, 2025-07-01
+    Memory replay system         :active, p4_1, 2025-06-15, 2025-07-01
     Expert reorganization        :p4_2, 2025-07-01, 2025-07-15
     Sleep cycle scheduler        :p4_3, 2025-07-15, 2025-08-01
 ```
@@ -138,9 +138,13 @@ Current status:
 |-----------|--------|----------|
 | Core Experts | ✅ Complete | 100% |
 | Gating Network | ✅ Complete | 100% |
-| Routing Mechanism | 🔄 In Progress | 60% |
-| Knowledge Graph | ⏱️ Not Started | 0% |
-| Sleep Module | ⏱️ Not Started | 0% |
+| Routing Mechanism | ✅ Complete | 100% |
+| Dynamic Expert Creation | ✅ Complete | 100% |
+| Knowledge Graph (Basic) | ✅ Complete | 100% |
+| Expert Merging | ✅ Complete | 100% |
+| Expert Pruning | ✅ Complete | 100% |
+| Knowledge Graph (Advanced) | 🔄 In Progress | 40% |
+| Sleep Module (Memory Replay) | 🔄 In Progress | 20% |
 
 See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
 

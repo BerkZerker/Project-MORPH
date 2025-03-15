@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import networkx as nx
 import logging
+import copy
 from typing import List, Dict, Tuple, Optional, Any
 
 from morph.core.expert import Expert
@@ -237,14 +238,108 @@ class MorphModel(nn.Module):
         # Sort by similarity (highest first)
         experts_to_merge.sort(key=lambda x: x[2], reverse=True)
         
-        # Actually merge experts (just log for now)
+        # Actually merge experts
         if experts_to_merge:
+            # Keep track of merged experts to handle multiple merges
+            merged_experts = set()
+            
             for i, j, sim in experts_to_merge:
-                logging.info(f"Would merge experts {i} and {j} with similarity {sim:.4f}")
-                # TODO: Implement actual merging logic
+                # Skip if either expert was already merged
+                if i in merged_experts or j in merged_experts:
+                    continue
+                    
+                logging.info(f"Merging experts {i} and {j} with similarity {sim:.4f}")
+                
+                # Create a merged expert by averaging parameters
+                self._merge_expert_parameters(i, j)
+                
+                # Mark j as merged into i
+                merged_experts.add(j)
+            
+            # Remove merged experts (in reverse order to avoid index shifting)
+            merged_indices = sorted(merged_experts, reverse=True)
+            for idx in merged_indices:
+                # Update knowledge graph before removing
+                self._transfer_knowledge_edges(idx)
+                # Remove the expert
+                del self.experts[idx]
+            
+            # Update expert IDs
+            for i, expert in enumerate(self.experts):
+                expert.expert_id = i
+                
+            # Update gating network
+            self.gating.update_num_experts(len(self.experts))
+            
             merged_any = True
         
         return merged_any
+    
+    def _merge_expert_parameters(self, idx1, idx2):
+        """
+        Merge parameters of two experts by weighted averaging.
+        The first expert (idx1) will contain the merged parameters.
+        
+        Args:
+            idx1: Index of first expert (destination)
+            idx2: Index of second expert (to be merged)
+        """
+        expert1 = self.experts[idx1]
+        expert2 = self.experts[idx2]
+        
+        # Get activation counts for weighted averaging
+        act_count1 = self.knowledge_graph.nodes[idx1]['activation_count']
+        act_count2 = self.knowledge_graph.nodes[idx2]['activation_count']
+        total_count = act_count1 + act_count2
+        
+        # Avoid division by zero
+        if total_count == 0:
+            weight1, weight2 = 0.5, 0.5
+        else:
+            weight1 = act_count1 / total_count
+            weight2 = act_count2 / total_count
+        
+        # Merge parameters
+        with torch.no_grad():
+            for param1, param2 in zip(expert1.parameters(), expert2.parameters()):
+                param1.data = weight1 * param1.data + weight2 * param2.data
+                
+        # Update activation count for merged expert
+        expert1.activation_count += expert2.activation_count
+        self.knowledge_graph.nodes[idx1]['activation_count'] += act_count2
+    
+    def _transfer_knowledge_edges(self, idx):
+        """
+        Transfer edges from an expert that will be removed to its connections.
+        
+        Args:
+            idx: Index of expert to remove
+        """
+        # Get all neighbors of the expert
+        neighbors = list(self.knowledge_graph.neighbors(idx))
+        
+        # For each pair of neighbors, add or strengthen connection
+        for i, neighbor1 in enumerate(neighbors):
+            for neighbor2 in neighbors[i+1:]:
+                # Skip if already removed
+                if neighbor1 == idx or neighbor2 == idx:
+                    continue
+                    
+                # Get current edge weight
+                if self.knowledge_graph.has_edge(neighbor1, neighbor2):
+                    curr_weight = self.knowledge_graph[neighbor1][neighbor2]['weight']
+                else:
+                    curr_weight = 0.0
+                
+                # Get weights of connections to the removed expert
+                w1 = self.knowledge_graph[idx][neighbor1]['weight']
+                w2 = self.knowledge_graph[idx][neighbor2]['weight']
+                
+                # New weight is average of current weight and product of connections
+                new_weight = (curr_weight + (w1 * w2)) / 2
+                
+                # Add or update edge
+                self.knowledge_graph.add_edge(neighbor1, neighbor2, weight=new_weight)
     
     def _prune_dormant_experts(self):
         """
@@ -262,14 +357,31 @@ class MorphModel(nn.Module):
         dormant_experts = []
         
         for i, expert in enumerate(self.experts):
-            if expert.last_activated < dormant_threshold:
-                dormant_experts.append(i)
+            node_data = self.knowledge_graph.nodes[i]
+            if node_data['last_activated'] < dormant_threshold:
+                # Check activation count to avoid pruning experts that were heavily used before
+                if node_data['activation_count'] < self.config.min_lifetime_activations:
+                    dormant_experts.append(i)
         
-        # Actually prune experts (just log for now)
+        # Actually prune experts
         if dormant_experts:
-            for i in dormant_experts:
-                logging.info(f"Would prune dormant expert {i}")
-                # TODO: Implement actual pruning logic
+            # Prune in reverse order to avoid index shifting
+            for i in sorted(dormant_experts, reverse=True):
+                logging.info(f"Pruning dormant expert {i}")
+                
+                # Transfer knowledge before removing
+                self._transfer_knowledge_edges(i)
+                
+                # Remove expert
+                del self.experts[i]
+            
+            # Update expert IDs
+            for i, expert in enumerate(self.experts):
+                expert.expert_id = i
+                
+            # Update gating network
+            self.gating.update_num_experts(len(self.experts))
+            
             return True
         
         return False
@@ -278,5 +390,28 @@ class MorphModel(nn.Module):
         """
         Rebuild the knowledge graph after merging or pruning.
         """
-        # TODO: Implement knowledge graph rebuilding
-        pass
+        # Create new graph with correct nodes
+        new_graph = nx.Graph()
+        
+        # Add nodes for all experts
+        for i, expert in enumerate(self.experts):
+            # If node exists in old graph, copy its data
+            if i < len(self.knowledge_graph.nodes):
+                node_data = copy.deepcopy(self.knowledge_graph.nodes[i])
+                new_graph.add_node(i, **node_data)
+            else:
+                # New node with default data
+                new_graph.add_node(i, activation_count=0, last_activated=self.step_count)
+        
+        # Copy edges between existing experts
+        for i in range(len(self.experts)):
+            for j in range(i+1, len(self.experts)):
+                if self.knowledge_graph.has_edge(i, j):
+                    edge_data = self.knowledge_graph.get_edge_data(i, j)
+                    new_graph.add_edge(i, j, **edge_data)
+        
+        # Update knowledge graph
+        self.knowledge_graph = new_graph
+        
+        # Update gating network for new expert count
+        self.gating.update_num_experts(len(self.experts))
