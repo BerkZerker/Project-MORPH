@@ -157,8 +157,14 @@ gantt
     section Phase 5
     Advanced knowledge graph     :done, p5_1, 2025-08-01, 2025-08-15
     Meta-learning optimization   :done, p5_2, 2025-08-15, 2025-09-01
-    Continuous learning system   :active, p5_3, 2025-09-01, 2025-09-15
-    Long-term memory models      :p5_4, 2025-09-15, 2025-10-01
+    Continuous learning system   :done, p5_3, 2025-09-01, 2025-09-15
+    Prioritized Memory Replay    :done, p5_4, 2025-09-15, 2025-10-01
+    
+    section Phase 6
+    Advanced Unit Testing        :active, p6_1, 2025-10-01, 2025-10-15
+    Full Model Training         :active, p6_2, 2025-10-15, 2025-11-01
+    Multi-level Expert Hierarchy:p6_3, 2025-11-01, 2025-11-15
+    Cross-modal Knowledge Transfer:p6_4, 2025-11-15, 2025-12-01
 ```
 
 Current status:
@@ -176,6 +182,9 @@ Current status:
 | Sleep Module (Memory Replay) | ✅ Complete | 100% |
 | Sleep Module (Meta Learning) | ✅ Complete | 100% |
 | Continuous Learning | ✅ Complete | 100% |
+| Prioritized Memory Replay | ✅ Complete | 100% |
+| Expert Reorganization | ✅ Complete | 100% |
+| Concept Drift Detection | ✅ Complete | 100% |
 
 See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
 
