@@ -171,7 +171,7 @@ def test_continual_dataset_getitem():
 
 def test_morph_with_continual_learning():
     """Test MORPH model on a continual learning scenario."""
-    # Create a small MORPH model
+    # Create a small MORPH model with GPU acceleration
     config = MorphConfig(
         input_size=10,
         expert_hidden_size=20,
@@ -188,7 +188,21 @@ def test_morph_with_continual_learning():
         sleep_cycle_frequency=50,
         
         # Set batch size small for testing
-        batch_size=4
+        batch_size=4,
+        
+        # GPU acceleration
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        enable_mixed_precision=torch.cuda.is_available(),  # Enable mixed precision if CUDA available
+        
+        # Data loading optimization
+        num_workers=2,
+        pin_memory=torch.cuda.is_available(),
+        
+        # Test-specific optimizations
+        test_mode=True,
+        test_expert_size=16,  # Smaller expert size for tests
+        test_sleep_frequency=25,  # More frequent sleep cycles for tests
+        test_memory_buffer_size=100  # Smaller memory buffer for tests
     )
     
     model = MorphModel(config)
@@ -213,11 +227,13 @@ def test_morph_with_continual_learning():
     # Create continual dataset
     continual_dataset = ContinualTaskDataset(datasets, task_schedule)
     
-    # Create data loader
+    # Create data loader with optimized data loading
     dataloader = DataLoader(
         continual_dataset,
         batch_size=config.batch_size,
-        shuffle=True
+        shuffle=True,
+        num_workers=config.num_workers,
+        pin_memory=config.pin_memory
     )
     
     # Training setup
@@ -237,6 +253,10 @@ def test_morph_with_continual_learning():
         for data, target, task_id in dataloader:
             # Flatten batch dimension for testing
             data = data.view(data.size(0), -1)
+            
+            # Move data and target to the same device as the model
+            data = data.to(model.device)
+            target = target.to(model.device)
             
             # Forward pass
             outputs = model(data, training=True)
@@ -264,6 +284,10 @@ def test_morph_with_continual_learning():
             # Flatten batch dimension for testing
             data = data.view(data.size(0), -1)
             
+            # Move data and target to the same device as the model
+            data = data.to(model.device)
+            target = target.to(model.device)
+            
             # Forward pass
             outputs = model(data, training=True)
             loss = criterion(outputs, target)
@@ -282,17 +306,32 @@ def test_morph_with_continual_learning():
     # Evaluate on both tasks
     model.eval()
     
-    # Function to compute accuracy on a dataset
+    # Function to compute accuracy on a dataset with optimized data loading
     def compute_accuracy(dataset):
         correct = 0
         total = 0
         
-        dataloader = DataLoader(dataset, batch_size=10, shuffle=False)
+        dataloader = DataLoader(
+            dataset, 
+            batch_size=10, 
+            shuffle=False,
+            num_workers=config.num_workers,
+            pin_memory=config.pin_memory
+        )
         
         with torch.no_grad():
             for data, target in dataloader:
                 # Flatten batch dimension
                 data = data.view(data.size(0), -1)
+                
+                # Move data and target to the same device as the model
+                if hasattr(model, 'device'):
+                    device = model.device
+                else:
+                    device = next(model.parameters()).device
+                    
+                data = data.to(device)
+                target = target.to(device)
                 
                 # Forward pass
                 outputs = model(data, training=False)
@@ -321,7 +360,7 @@ def test_morph_with_continual_learning():
 
 def test_expert_specialization_for_tasks():
     """Test that experts specialize for different tasks in continual learning."""
-    # Create a small MORPH model
+    # Create a small MORPH model with GPU acceleration
     config = MorphConfig(
         input_size=10,
         expert_hidden_size=20,
@@ -335,7 +374,21 @@ def test_expert_specialization_for_tasks():
         
         # Enable sleep (more frequent for testing)
         enable_sleep=True,
-        sleep_cycle_frequency=30
+        sleep_cycle_frequency=30,
+        
+        # GPU acceleration
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        enable_mixed_precision=torch.cuda.is_available(),
+        
+        # Data loading optimization
+        num_workers=2,
+        pin_memory=torch.cuda.is_available(),
+        
+        # Test-specific optimizations
+        test_mode=True,
+        test_expert_size=16,
+        test_sleep_frequency=15,
+        test_memory_buffer_size=100
     )
     
     model = MorphModel(config)
@@ -361,7 +414,13 @@ def test_expert_specialization_for_tasks():
     
     # Create continual dataset
     continual_dataset = ContinualTaskDataset(datasets, task_schedule)
-    dataloader = DataLoader(continual_dataset, batch_size=16, shuffle=True)
+    dataloader = DataLoader(
+        continual_dataset, 
+        batch_size=16, 
+        shuffle=True,
+        num_workers=config.num_workers,
+        pin_memory=config.pin_memory
+    )
     
     # Training setup
     criterion = torch.nn.CrossEntropyLoss()
@@ -390,6 +449,11 @@ def test_expert_specialization_for_tasks():
             
             # Flatten batch dimension
             data = data.view(data.size(0), -1)
+            
+            # Move data and target to the same device as the model
+            data = data.to(model.device)
+            target = target.to(model.device)
+            task_id = task_id.to(model.device)
             
             # Reset activation counts before checking to track per-batch activations
             for expert in model.experts:
@@ -458,13 +522,19 @@ def test_catastrophic_forgetting_reduction():
     
     datasets = {0: task0_dataset, 1: task1_dataset}
     
-    # Function to evaluate model on both tasks
+    # Function to evaluate model on both tasks with optimized data loading
     def evaluate_model(model, task0_dataset, task1_dataset):
         model.eval()
         accuracies = {}
         
         for task_id, dataset in [(0, task0_dataset), (1, task1_dataset)]:
-            dataloader = DataLoader(dataset, batch_size=32, shuffle=False)
+            dataloader = DataLoader(
+                dataset, 
+                batch_size=32, 
+                shuffle=False,
+                num_workers=morph_config.num_workers,
+                pin_memory=morph_config.pin_memory
+            )
             correct = 0
             total = 0
             
@@ -472,6 +542,15 @@ def test_catastrophic_forgetting_reduction():
                 for data, target in dataloader:
                     # Flatten batch dimension
                     data = data.view(data.size(0), -1)
+                    
+                    # Move data and target to the same device as the model
+                    if hasattr(model, 'device'):
+                        device = model.device
+                    else:
+                        device = next(model.parameters()).device
+                        
+                    data = data.to(device)
+                    target = target.to(device)
                     
                     # Forward pass
                     outputs = model(data, training=False)
@@ -485,7 +564,7 @@ def test_catastrophic_forgetting_reduction():
         
         return accuracies
     
-    # Create MORPH model
+    # Create MORPH model with GPU acceleration
     morph_config = MorphConfig(
         input_size=feature_dim,
         expert_hidden_size=20,
@@ -498,7 +577,21 @@ def test_catastrophic_forgetting_reduction():
         
         # Enable sleep
         enable_sleep=True,
-        sleep_cycle_frequency=50
+        sleep_cycle_frequency=50,
+        
+        # GPU acceleration
+        device="cuda" if torch.cuda.is_available() else "cpu",
+        enable_mixed_precision=torch.cuda.is_available(),
+        
+        # Data loading optimization
+        num_workers=2,
+        pin_memory=torch.cuda.is_available(),
+        
+        # Test-specific optimizations
+        test_mode=True,
+        test_expert_size=16,
+        test_sleep_frequency=25,
+        test_memory_buffer_size=100
     )
     
     morph_model = MorphModel(morph_config)
@@ -521,8 +614,14 @@ def test_catastrophic_forgetting_reduction():
     # Create standard model with comparable capacity
     standard_model = StandardModel(feature_dim, 40, 2)  # Larger hidden size for fair comparison
     
-    # Train both models on task 0
-    task0_dataloader = DataLoader(task0_dataset, batch_size=16, shuffle=True)
+    # Train both models on task 0 with optimized data loading
+    task0_dataloader = DataLoader(
+        task0_dataset, 
+        batch_size=16, 
+        shuffle=True,
+        num_workers=morph_config.num_workers,
+        pin_memory=morph_config.pin_memory
+    )
     
     # Training setup
     morph_optimizer = torch.optim.Adam(morph_model.parameters(), lr=0.001)
@@ -538,12 +637,19 @@ def test_catastrophic_forgetting_reduction():
             # Flatten batch dimension
             data = data.view(data.size(0), -1)
             
+            # Move data and target to the same device as the model
+            data = data.to(morph_model.device)
+            target = target.to(morph_model.device)
+            
             # Train MORPH model
             morph_optimizer.zero_grad()
             morph_outputs = morph_model(data, training=True)
             morph_loss = criterion(morph_outputs, target)
             morph_loss.backward()
             morph_optimizer.step()
+            
+            # Move standard model to the same device as morph_model
+            standard_model = standard_model.to(morph_model.device)
             
             # Train standard model
             standard_optimizer.zero_grad()
@@ -564,8 +670,14 @@ def test_catastrophic_forgetting_reduction():
     assert morph_accuracies_after_task0[0] > 60
     assert standard_accuracies_after_task0[0] > 60
     
-    # Now train both models on task 1
-    task1_dataloader = DataLoader(task1_dataset, batch_size=16, shuffle=True)
+    # Now train both models on task 1 with optimized data loading
+    task1_dataloader = DataLoader(
+        task1_dataset, 
+        batch_size=16, 
+        shuffle=True,
+        num_workers=morph_config.num_workers,
+        pin_memory=morph_config.pin_memory
+    )
     
     for epoch in range(5):  # Just a few epochs for testing
         morph_model.train()
@@ -575,12 +687,19 @@ def test_catastrophic_forgetting_reduction():
             # Flatten batch dimension
             data = data.view(data.size(0), -1)
             
+            # Move data and target to the same device as the model
+            data = data.to(morph_model.device)
+            target = target.to(morph_model.device)
+            
             # Train MORPH model
             morph_optimizer.zero_grad()
             morph_outputs = morph_model(data, training=True)
             morph_loss = criterion(morph_outputs, target)
             morph_loss.backward()
             morph_optimizer.step()
+            
+            # Make sure standard model is on the same device
+            standard_model = standard_model.to(morph_model.device)
             
             # Train standard model
             standard_optimizer.zero_grad()

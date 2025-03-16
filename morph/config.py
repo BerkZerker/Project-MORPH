@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import torch
 
 
 @dataclass
@@ -56,8 +57,22 @@ class MorphConfig:
     batch_size: int = 64
     num_epochs: int = 10
     
+    # GPU Acceleration
+    device: str = "auto"  # "auto", "cuda", or "cpu" - Auto-detected in __post_init__
+    enable_mixed_precision: bool = False  # Whether to use mixed precision training (fp16)
+    
+    # Data Loading Optimization
+    num_workers: int = 4  # Number of workers for DataLoader
+    pin_memory: bool = True  # Whether to use pinned memory for faster CPU->GPU transfer
+    
+    # Test-specific optimizations
+    test_mode: bool = False  # Whether to use test-specific optimizations
+    test_expert_size: int = 64  # Smaller expert size for tests
+    test_sleep_frequency: int = 100  # Reduced sleep frequency for tests
+    test_memory_buffer_size: int = 200  # Smaller memory buffer for tests
+    
     def __post_init__(self):
-        """Initialize default values for complex types"""
+        """Initialize default values for complex types and auto-detect device"""
         if self.knowledge_relation_types is None:
             self.knowledge_relation_types = [
                 "similarity",        # For similar experts
@@ -66,3 +81,15 @@ class MorphConfig:
                 "composition",       # For experts that are compositional
                 "specialization_split", # For experts that split specialization
             ]
+        
+        # Auto-detect device if set to "auto" or None
+        if self.device is None or self.device == "auto":
+            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+            
+        # Enable mixed precision only if using CUDA
+        if self.enable_mixed_precision and self.device != "cuda":
+            self.enable_mixed_precision = False
+            
+        # Enable pin_memory only if using CUDA
+        if self.pin_memory and self.device != "cuda":
+            self.pin_memory = False

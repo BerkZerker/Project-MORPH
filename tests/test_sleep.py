@@ -16,7 +16,10 @@ def test_sleep_cycle_initialization():
         # Sleep settings
         enable_sleep=True,
         sleep_cycle_frequency=100,
-        enable_adaptive_sleep=True
+        enable_adaptive_sleep=True,
+        
+        # Force GPU for testing
+        device="cuda"
     )
     
     model = MorphModel(config)
@@ -38,7 +41,10 @@ def test_memory_replay():
         
         # Sleep settings
         enable_sleep=True,
-        sleep_cycle_frequency=100
+        sleep_cycle_frequency=100,
+        
+        # Force GPU for testing
+        device="cuda"
     )
     
     model = MorphModel(config)
@@ -46,17 +52,19 @@ def test_memory_replay():
     # Create some fake activations
     for expert_idx in range(len(model.experts)):
         for _ in range(10):
-            inputs = torch.randn(2, config.input_size)
+            # Create inputs on the same device as the model
+            inputs = torch.randn(2, config.input_size).to(model.device)
             outputs = model.experts[expert_idx](inputs)
             
+            # Store CPU tensors in the buffer to avoid device issues
             model.activation_buffer.append({
                 'expert_idx': expert_idx,
-                'inputs': inputs,
-                'outputs': outputs,
+                'inputs': inputs.cpu(),
+                'outputs': outputs.cpu(),
                 'routing_weight': 1.0,
                 'step': 0,
                 'batch_size': inputs.size(0),
-                'input_features': torch.mean(inputs, dim=0),
+                'input_features': torch.mean(inputs, dim=0).cpu(),
                 'uncertainty': 0.1
             })
     
@@ -77,7 +85,10 @@ def test_expert_specialization_analysis():
         input_size=10,
         expert_hidden_size=20,
         output_size=5,
-        num_initial_experts=3
+        num_initial_experts=3,
+        
+        # Force GPU for testing
+        device="cuda"
     )
     
     model = MorphModel(config)
@@ -128,7 +139,10 @@ def test_adaptive_sleep_scheduling():
         sleep_cycle_frequency=100,
         enable_adaptive_sleep=True,
         min_sleep_frequency=50,
-        max_sleep_frequency=200
+        max_sleep_frequency=200,
+        
+        # Force GPU for testing
+        device="cuda"
     )
     
     model = MorphModel(config)
@@ -183,7 +197,10 @@ def test_expert_reorganization():
         # Enable reorganization
         enable_expert_reorganization=True,
         specialization_threshold=0.7,
-        overlap_threshold=0.3
+        overlap_threshold=0.3,
+        
+        # Force GPU for testing
+        device="cuda"
     )
     
     model = MorphModel(config)
@@ -243,7 +260,10 @@ def test_full_sleep_cycle():
         enable_dynamic_experts=True,
         
         # Expert reorganization
-        enable_expert_reorganization=True
+        enable_expert_reorganization=True,
+        
+        # Force GPU for testing
+        device="cuda"
     )
     
     model = MorphModel(config)
@@ -251,17 +271,19 @@ def test_full_sleep_cycle():
     # Create some fake activations
     for expert_idx in range(len(model.experts)):
         for _ in range(10):
-            inputs = torch.randn(2, config.input_size)
+            # Create inputs on the same device as the model
+            inputs = torch.randn(2, config.input_size).to(model.device)
             outputs = model.experts[expert_idx](inputs)
             
+            # Store CPU tensors in the buffer to avoid device issues
             model.activation_buffer.append({
                 'expert_idx': expert_idx,
-                'inputs': inputs,
-                'outputs': outputs,
+                'inputs': inputs.cpu(),
+                'outputs': outputs.cpu(),
                 'routing_weight': 1.0,
                 'step': 0,
                 'batch_size': inputs.size(0),
-                'input_features': torch.mean(inputs, dim=0),
+                'input_features': torch.mean(inputs, dim=0).cpu(),
                 'uncertainty': 0.1
             })
     

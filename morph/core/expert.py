@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
 
 class Expert(nn.Module):
@@ -38,6 +39,9 @@ class Expert(nn.Module):
         self.performance_history = []  # List of (step, loss) tuples
         self.confidence_score = 0.5  # 0.0 = unconfident, 1.0 = confident
         
+        # Device tracking
+        self.device = torch.device('cpu')  # Default to CPU, will be updated when moved
+        
         # Build layers
         layers = []
         layers.append(nn.Linear(input_size, hidden_size))
@@ -68,33 +72,42 @@ class Expert(nn.Module):
         Returns:
             Expert output
         """
+        # Update device tracking and ensure network is on the same device as input
+        if x.device != self.device:
+            self.device = x.device
+            # Move the network to the same device as the input
+            self.network = self.network.to(x.device)
+            
         if update_stats:
             self.activation_count += x.size(0)  # Count each sample in the batch
             
             # Update input feature statistics if not in sleep mode
             if x.size(0) <= 32:  # Don't track large batch statistics for memory efficiency
                 with torch.no_grad():
-                    # Compute mean input feature vector (simple summary)
-                    mean_features = torch.mean(x, dim=0).detach().cpu()
+                    # Compute mean input feature vector using vectorized operations
+                    # Keep on device as long as possible to reduce transfers
+                    mean_features = torch.mean(x, dim=0).detach()
                     
-                    # Update running centroid with stronger update for better specialization
+                    # Only move to CPU for storage if needed
+                    mean_features_cpu = mean_features.cpu()
+                    
+                    # Update running centroid with vectorized operations
                     if self.input_feature_centroid is None:
-                        self.input_feature_centroid = mean_features
+                        self.input_feature_centroid = mean_features_cpu
                     else:
-                        # Exponential moving average update with faster adaptation
-                        # Increased from 0.05 to 0.1 for faster specialization
-                        self.input_feature_centroid = 0.9 * self.input_feature_centroid + 0.1 * mean_features
+                        # Vectorized update using tensor operations
+                        self.input_feature_centroid = 0.9 * self.input_feature_centroid + 0.1 * mean_features_cpu
                     
                     # Update specialization score based on input consistency
                     if hasattr(self, 'last_inputs') and self.last_inputs is not None:
                         # Calculate similarity between current and previous inputs
+                        # Use vectorized operations for better performance
                         similarity = F.cosine_similarity(
-                            mean_features.unsqueeze(0),
+                            mean_features_cpu.unsqueeze(0),
                             self.last_inputs.unsqueeze(0)
                         )[0].item()
                         
-                        # Higher similarity means more specialized (consistent inputs)
-                        # Update specialization score with a small step
+                        # Use vectorized update with threshold-based logic
                         if similarity > 0.7:  # High similarity threshold
                             # Increase specialization score (more specialized)
                             self.specialization_score = min(1.0, self.specialization_score + 0.01)
@@ -103,9 +116,30 @@ class Expert(nn.Module):
                             self.specialization_score = max(0.0, self.specialization_score - 0.005)
                     
                     # Store current inputs for next comparison
-                    self.last_inputs = mean_features
+                    self.last_inputs = mean_features_cpu
         
+        # Forward pass through the network
         return self.network(x)
+        
+    def to(self, *args, **kwargs):
+        """
+        Override the to() method to track device changes.
+        
+        Args:
+            *args, **kwargs: Arguments to pass to the parent to() method
+            
+        Returns:
+            Self, after moving to the specified device
+        """
+        # Call the parent to() method
+        device, dtype, non_blocking, convert_to_format = torch._C._nn._parse_to(*args, **kwargs)
+        
+        if device is not None:
+            # Update device tracking
+            self.device = device
+            
+        # Call the parent to() method
+        return super().to(*args, **kwargs)
     
     def clone(self):
         """
@@ -137,6 +171,11 @@ class Expert(nn.Module):
         params1 = torch.cat([p.view(-1) for p in self.parameters()])
         params2 = torch.cat([p.view(-1) for p in other_expert.parameters()])
         
+        # Ensure both parameter vectors are on the same device
+        if params1.device != params2.device:
+            # Move params2 to the same device as params1
+            params2 = params2.to(params1.device)
+        
         # Compute cosine similarity
         return F.cosine_similarity(params1.unsqueeze(0), params2.unsqueeze(0))[0]
     
@@ -166,12 +205,18 @@ class Expert(nn.Module):
         """
         if self.input_feature_centroid is None or other_expert.input_feature_centroid is None:
             return None
+        
+        # Get centroids and ensure they're on the same device
+        centroid1 = self.input_feature_centroid.unsqueeze(0)
+        centroid2 = other_expert.input_feature_centroid.unsqueeze(0)
+        
+        # Ensure both centroids are on the same device
+        if centroid1.device != centroid2.device:
+            # Move centroid2 to the same device as centroid1
+            centroid2 = centroid2.to(centroid1.device)
             
         # Compute cosine similarity between centroids
-        return F.cosine_similarity(
-            self.input_feature_centroid.unsqueeze(0),
-            other_expert.input_feature_centroid.unsqueeze(0)
-        )[0]
+        return F.cosine_similarity(centroid1, centroid2)[0]
     
     def update_confidence(self, loss_value):
         """

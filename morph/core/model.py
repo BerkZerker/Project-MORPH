@@ -4,7 +4,8 @@ import torch.nn.functional as F
 import numpy as np
 import logging
 import copy
-from typing import List, Dict, Tuple, Optional, Any
+from typing import List, Dict, Tuple, Optional, Any, Union
+from torch.cuda.amp import autocast, GradScaler
 
 from morph.core.expert import Expert
 from morph.core.gating import GatingNetwork
@@ -36,17 +37,35 @@ class MorphModel(nn.Module):
                 - enable_sleep: Whether to enable sleep cycles
                 - sleep_cycle_frequency: How often to trigger sleep cycles
                 - expert_similarity_threshold: Threshold for merging similar experts
+                - device: Device to use (cuda or cpu)
+                - enable_mixed_precision: Whether to use mixed precision training
         """
         super().__init__()
         
         self.config = config
         self.step_count = 0
         
+        # Always use CUDA - this model requires a GPU
+        self.device = torch.device("cuda")
+            
+        logging.info(f"Using device: {self.device}")
+        
+        # Set up mixed precision training if enabled and using CUDA
+        self.enable_mixed_precision = config.enable_mixed_precision and self.device.type == 'cuda'
+        if self.enable_mixed_precision:
+            logging.info("Mixed precision training enabled")
+            self.scaler = GradScaler()
+        else:
+            self.scaler = None
+        
+        # Use smaller expert size for tests if in test mode
+        expert_hidden_size = config.test_expert_size if config.test_mode else config.expert_hidden_size
+        
         # Initialize experts
         self.experts = nn.ModuleList([
             Expert(
                 config.input_size, 
-                config.expert_hidden_size, 
+                expert_hidden_size, 
                 config.output_size
             ) for _ in range(config.num_initial_experts)
         ])
@@ -75,6 +94,9 @@ class MorphModel(nn.Module):
         # Expert specialization metrics
         self.expert_input_distributions = {i: {} for i in range(config.num_initial_experts)}
         self.expert_performance_history = {i: [] for i in range(config.num_initial_experts)}
+        
+        # Move model to the specified device
+        self.to(self.device)
     
     def forward(self, x, training=True):
         """
@@ -87,79 +109,103 @@ class MorphModel(nn.Module):
         Returns:
             Model output tensor [batch_size, output_size]
         """
+        # Move input to the correct device
+        x = x.to(self.device)
         batch_size = x.shape[0]
         
-        # Get routing weights from gating network
-        routing_weights, expert_indices, uncertainty = self.gating(x, training)
-        
-        # Maybe create new expert if uncertainty is high
-        if (training and 
-            self.config.enable_dynamic_experts and 
-            self.gating.should_create_new_expert(uncertainty)):
-            self._create_new_expert()
-        
-        # Initialize output tensor
-        outputs = torch.zeros(batch_size, self.config.output_size, device=x.device)
-        
-        # Route inputs to selected experts and combine outputs
-        for i in range(self.gating.k):
-            # Get the expert indices and routing weights for this slot
-            indices = expert_indices[:, i]  # [batch_size]
-            weights = routing_weights[:, i].unsqueeze(1)  # [batch_size, 1]
+        # Use autocast for mixed precision if enabled
+        with autocast(enabled=self.enable_mixed_precision and self.device.type == 'cuda'):
+            # Get routing weights from gating network
+            routing_weights, expert_indices, uncertainty = self.gating(x, training)
             
-            # Process each expert
-            for expert_idx in indices.unique():
-                # Find which batch items use this expert
-                mask = (indices == expert_idx)
-                if not mask.any():
-                    continue
+            # Maybe create new expert if uncertainty is high
+            if (training and 
+                self.config.enable_dynamic_experts and 
+                self.gating.should_create_new_expert(uncertainty)):
+                self._create_new_expert()
+            
+            # Initialize output tensor
+            outputs = torch.zeros(batch_size, self.config.output_size, device=self.device)
+            
+            # Route inputs to selected experts and combine outputs
+            for i in range(self.gating.k):
+                # Get the expert indices and routing weights for this slot
+                indices = expert_indices[:, i]  # [batch_size]
+                weights = routing_weights[:, i].unsqueeze(1)  # [batch_size, 1]
+                
+                # Process each expert
+                for expert_idx in indices.unique():
+                    # Find which batch items use this expert
+                    mask = (indices == expert_idx)
+                    if not mask.any():
+                        continue
+                        
+                    # Get the expert
+                    expert = self.experts[expert_idx]
                     
-                # Get the expert
-                expert = self.experts[expert_idx]
-                
-                # Update expert activation counters
-                expert.last_activated = self.step_count
-                
-                # If training, update knowledge graph
-                if training:
-                    self.knowledge_graph.update_expert_activation(expert_idx.item(), self.step_count)
-                
-                # Process inputs with this expert
-                expert_inputs = x[mask]
-                expert_outputs = expert(expert_inputs)
-                
-                # Weight outputs by routing weights
-                weighted_outputs = expert_outputs * weights[mask]
-                
-                # Add to final outputs
-                outputs[mask] += weighted_outputs
-                
-                # Store activation for sleep cycle if training
-                if training:
-                    # Compute and store expert performance
-                    with torch.no_grad():
-                        # Store activation metadata for sleep module
-                        activation_data = {
-                            'expert_idx': expert_idx.item(),
-                            'inputs': expert_inputs.detach().cpu(),
-                            'outputs': expert_outputs.detach().cpu(),
-                            'routing_weight': weights[mask].mean().item(),
-                            'step': self.step_count,
-                            'batch_size': expert_inputs.size(0),
-                            'input_features': torch.mean(expert_inputs, dim=0).detach().cpu(),
-                            'uncertainty': uncertainty.item() if uncertainty is not None else 0.0
-                        }
-                        self.sleep_module.add_to_memory_buffer(activation_data)
-                        
-                    # Track input distribution for specialization analysis
-                    if expert_idx.item() in self.expert_input_distributions:
-                        input_features = torch.mean(expert_inputs, dim=0).detach().cpu().numpy()
-                        feature_hash = hash(str(np.round(input_features, 2)))
-                        
-                        if feature_hash in self.expert_input_distributions[expert_idx.item()]:
-                            self.expert_input_distributions[expert_idx.item()][feature_hash] += 1
-                        else:
-                            self.expert_input_distributions[expert_idx.item()][feature_hash] = 1
+                    # Update expert activation counters
+                    expert.last_activated = self.step_count
+                    
+                    # If training, update knowledge graph
+                    if training:
+                        self.knowledge_graph.update_expert_activation(expert_idx.item(), self.step_count)
+                    
+                    # Process inputs with this expert
+                    expert_inputs = x[mask]
+                    expert_outputs = expert(expert_inputs)
+                    
+                    # Weight outputs by routing weights
+                    weighted_outputs = expert_outputs * weights[mask]
+                    
+                    # Add to final outputs
+                    outputs[mask] += weighted_outputs
+                    
+                    # Store activation for sleep cycle if training
+                    if training:
+                        # Compute and store expert performance
+                        with torch.no_grad():
+                            # Store activation metadata for sleep module
+                            # Keep tensors on GPU if possible, only move to CPU for storage if needed
+                            if self.device.type == 'cuda':
+                                # Store features on GPU to reduce CPU-GPU transfers
+                                input_features = torch.mean(expert_inputs, dim=0)
+                                # Only detach and move to CPU for storage in memory buffer
+                                activation_data = {
+                                    'expert_idx': expert_idx.item(),
+                                    'inputs': expert_inputs.detach().cpu() if self.config.memory_buffer_size > 0 else None,
+                                    'outputs': expert_outputs.detach().cpu() if self.config.memory_buffer_size > 0 else None,
+                                    'routing_weight': weights[mask].mean().item(),
+                                    'step': self.step_count,
+                                    'batch_size': expert_inputs.size(0),
+                                    'input_features': input_features.detach().cpu(),
+                                    'uncertainty': uncertainty.item() if uncertainty is not None else 0.0
+                                }
+                            else:
+                                # On CPU, no need to move
+                                input_features = torch.mean(expert_inputs, dim=0).detach()
+                                activation_data = {
+                                    'expert_idx': expert_idx.item(),
+                                    'inputs': expert_inputs.detach() if self.config.memory_buffer_size > 0 else None,
+                                    'outputs': expert_outputs.detach() if self.config.memory_buffer_size > 0 else None,
+                                    'routing_weight': weights[mask].mean().item(),
+                                    'step': self.step_count,
+                                    'batch_size': expert_inputs.size(0),
+                                    'input_features': input_features,
+                                    'uncertainty': uncertainty.item() if uncertainty is not None else 0.0
+                                }
+                            
+                            self.sleep_module.add_to_memory_buffer(activation_data)
+                            
+                        # Track input distribution for specialization analysis
+                        if expert_idx.item() in self.expert_input_distributions:
+                            # Use vectorized operations for better performance
+                            input_features_np = input_features.cpu().numpy()
+                            feature_hash = hash(str(np.round(input_features_np, 2)))
+                            
+                            if feature_hash in self.expert_input_distributions[expert_idx.item()]:
+                                self.expert_input_distributions[expert_idx.item()][feature_hash] += 1
+                            else:
+                                self.expert_input_distributions[expert_idx.item()][feature_hash] = 1
         
         # Increment step counter
         if training:
@@ -537,25 +583,36 @@ class MorphModel(nn.Module):
         """
         inputs, targets = batch
         
+        # Move data to the correct device
+        inputs = inputs.to(self.device)
+        targets = targets.to(self.device)
+        
         # Zero gradients
         optimizer.zero_grad()
         
-        # Forward pass (with training=True to enable expert creation)
-        outputs = self(inputs, training=True)
-        
-        # Calculate loss
-        loss = criterion(outputs, targets)
-        
-        # Backward pass
-        loss.backward()
-        
-        # Update weights
-        optimizer.step()
+        # Mixed precision training if enabled
+        if self.enable_mixed_precision and self.device.type == 'cuda':
+            # Forward pass with autocast
+            with autocast():
+                outputs = self(inputs, training=True)
+                loss = criterion(outputs, targets)
+            
+            # Backward pass with gradient scaling
+            self.scaler.scale(loss).backward()
+            self.scaler.step(optimizer)
+            self.scaler.update()
+        else:
+            # Standard training
+            outputs = self(inputs, training=True)
+            loss = criterion(outputs, targets)
+            loss.backward()
+            optimizer.step()
         
         # Calculate accuracy
-        _, predicted = outputs.max(1)
-        correct = predicted.eq(targets).sum().item()
-        accuracy = 100. * correct / targets.size(0)
+        with torch.no_grad():
+            _, predicted = outputs.max(1)
+            correct = predicted.eq(targets).sum().item()
+            accuracy = 100. * correct / targets.size(0)
         
         return {
             'loss': loss.item(),
@@ -563,14 +620,14 @@ class MorphModel(nn.Module):
             'num_experts': len(self.experts)
         }
     
-    def evaluate(self, data_loader, criterion, device):
+    def evaluate(self, data_loader, criterion, device=None):
         """
         Evaluate the model on a dataset.
         
         Args:
             data_loader: DataLoader with evaluation data
             criterion: Loss function
-            device: Device to use
+            device: Device to use (optional, defaults to model's device)
             
         Returns:
             Dictionary with evaluation metrics
@@ -579,6 +636,9 @@ class MorphModel(nn.Module):
         test_loss = 0
         correct = 0
         total = 0
+        
+        # Use model's device if none provided
+        device = device or self.device
         
         with torch.no_grad():
             for inputs, targets in data_loader:
