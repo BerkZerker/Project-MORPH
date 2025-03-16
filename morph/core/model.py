@@ -11,6 +11,8 @@ from morph.core.expert import Expert
 from morph.core.gating import GatingNetwork
 from morph.core.knowledge_graph import KnowledgeGraph
 from morph.core.sleep import SleepModule
+from morph.utils.gpu_utils import setup_gpu_environment, distribute_experts_across_gpus, estimate_max_batch_size
+from morph.utils.distributed import create_parallel_wrapper
 
 
 class MorphModel(nn.Module):
@@ -45,13 +47,18 @@ class MorphModel(nn.Module):
         self.config = config
         self.step_count = 0
         
-        # Always use CUDA - this model requires a GPU
-        self.device = torch.device("cuda")
+        # Set up GPU environment
+        setup_gpu_environment()
+        
+        # Get primary device from config
+        self.device = torch.device(config.device)
+        self.devices = config.devices if config.devices else [self.device]
             
-        logging.info(f"Using device: {self.device}")
+        logging.info(f"Primary device: {self.device}")
+        logging.info(f"All devices: {self.devices}")
         
         # Set up mixed precision training if enabled and using CUDA
-        self.enable_mixed_precision = config.enable_mixed_precision and self.device.type == 'cuda'
+        self.enable_mixed_precision = config.enable_mixed_precision and any(d.type == 'cuda' for d in self.devices)
         if self.enable_mixed_precision:
             logging.info("Mixed precision training enabled")
             self.scaler = GradScaler()
@@ -73,13 +80,30 @@ class MorphModel(nn.Module):
         # Set expert IDs
         for i, expert in enumerate(self.experts):
             expert.expert_id = i
+            
+        # Distribute experts across devices if using multi-GPU
+        if config.gpu_mode == "multi_gpu" and len(self.devices) > 1:
+            self.expert_device_map = distribute_experts_across_gpus(
+                config.num_initial_experts, self.devices
+            )
+            
+            # Move experts to their assigned devices
+            for i, expert in enumerate(self.experts):
+                if i in self.expert_device_map:
+                    expert_device = self.expert_device_map[i]
+                    self.experts[i] = expert.to(expert_device)
+                    logging.info(f"Expert {i} assigned to {expert_device}")
+        else:
+            # Single device mode - all experts on the same device
+            self.expert_device_map = {i: self.device for i in range(config.num_initial_experts)}
+            self.experts = self.experts.to(self.device)
         
-        # Initialize gating network
+        # Initialize gating network (always on primary device)
         self.gating = GatingNetwork(
             config.input_size,
             config.num_initial_experts,
             k=config.expert_k
-        )
+        ).to(self.device)
         
         # Initialize knowledge graph
         self.knowledge_graph = KnowledgeGraph(config)
@@ -95,6 +119,32 @@ class MorphModel(nn.Module):
         self.expert_input_distributions = {i: {} for i in range(config.num_initial_experts)}
         self.expert_performance_history = {i: [] for i in range(config.num_initial_experts)}
         
+        # Store the expert device map in the config
+        config.expert_device_map = self.expert_device_map
+        
+        # Determine optimal batch size if auto_batch_size is enabled
+        if config.auto_batch_size and any(d.type == 'cuda' for d in self.devices):
+            try:
+                # Create a dummy input to estimate batch size
+                dummy_input_shape = (config.input_size,)
+                optimal_batch_size = estimate_max_batch_size(
+                    self, dummy_input_shape, self.device, max_memory_fraction=0.8
+                )
+                
+                # Update batch size in config if estimated batch size is smaller
+                if optimal_batch_size < config.batch_size:
+                    logging.info(f"Adjusting batch size from {config.batch_size} to {optimal_batch_size} based on GPU memory")
+                    config.batch_size = optimal_batch_size
+            except Exception as e:
+                logging.warning(f"Failed to estimate optimal batch size: {e}")
+        
+        # Create parallel wrapper if using multi-GPU
+        if config.gpu_mode == "multi_gpu" and len(self.devices) > 1:
+            self._wrapped_model = create_parallel_wrapper(self, config)
+            logging.info(f"Created parallel wrapper with strategy: {config.parallel_strategy}")
+        else:
+            self._wrapped_model = None
+            
         # Move model to the specified device
         self.to(self.device)
     
@@ -109,12 +159,16 @@ class MorphModel(nn.Module):
         Returns:
             Model output tensor [batch_size, output_size]
         """
+        # If using a parallel wrapper, delegate to it
+        if self._wrapped_model is not None and not isinstance(self._wrapped_model, MorphModel):
+            return self._wrapped_model(x, training=training)
+            
         # Move input to the correct device
         x = x.to(self.device)
         batch_size = x.shape[0]
         
         # Use autocast for mixed precision if enabled
-        with autocast(enabled=self.enable_mixed_precision and self.device.type == 'cuda'):
+        with autocast(enabled=self.enable_mixed_precision):
             # Get routing weights from gating network
             routing_weights, expert_indices, uncertainty = self.gating(x, training)
             
@@ -140,24 +194,37 @@ class MorphModel(nn.Module):
                     if not mask.any():
                         continue
                         
-                    # Get the expert
-                    expert = self.experts[expert_idx]
+                    # Get the expert and its device
+                    expert_idx_int = expert_idx.item()
+                    expert = self.experts[expert_idx_int]
+                    expert_device = self.expert_device_map.get(expert_idx_int, self.device)
                     
                     # Update expert activation counters
                     expert.last_activated = self.step_count
                     
                     # If training, update knowledge graph
                     if training:
-                        self.knowledge_graph.update_expert_activation(expert_idx.item(), self.step_count)
+                        self.knowledge_graph.update_expert_activation(expert_idx_int, self.step_count)
                     
-                    # Process inputs with this expert
+                    # Process inputs with this expert (move to expert's device if needed)
                     expert_inputs = x[mask]
+                    if expert_inputs.device != expert_device:
+                        expert_inputs = expert_inputs.to(expert_device)
+                        
                     expert_outputs = expert(expert_inputs)
                     
-                    # Weight outputs by routing weights
-                    weighted_outputs = expert_outputs * weights[mask]
+                    # Weight outputs by routing weights (on expert's device)
+                    if weights[mask].device != expert_device:
+                        expert_weights = weights[mask].to(expert_device)
+                    else:
+                        expert_weights = weights[mask]
+                        
+                    weighted_outputs = expert_outputs * expert_weights
                     
-                    # Add to final outputs
+                    # Move back to primary device if needed and add to final outputs
+                    if weighted_outputs.device != self.device:
+                        weighted_outputs = weighted_outputs.to(self.device)
+                        
                     outputs[mask] += weighted_outputs
                     
                     # Store activation for sleep cycle if training
@@ -237,11 +304,38 @@ class MorphModel(nn.Module):
         # This helps with continual learning as the new expert can quickly adapt to new tasks
         new_expert.specialization_score = 0.3  # Lower than default to encourage adaptation
         
+        # Assign the new expert to a device in multi-GPU setups
+        if self.config.gpu_mode == "multi_gpu" and len(self.devices) > 1:
+            # Get the device with the fewest experts
+            device_expert_counts = {}
+            for device in self.devices:
+                device_expert_counts[device] = sum(1 for d in self.expert_device_map.values() if d == device)
+                
+            # Find device with fewest experts
+            target_device = min(self.devices, key=lambda d: device_expert_counts[d])
+            
+            # Move expert to target device
+            new_expert = new_expert.to(target_device)
+            
+            # Update expert device map
+            new_expert_id = len(self.experts)
+            self.expert_device_map[new_expert_id] = target_device
+            
+            logging.info(f"Assigned new expert {new_expert_id} to device {target_device}")
+        else:
+            # Single device mode - move to the primary device
+            new_expert = new_expert.to(self.device)
+            new_expert_id = len(self.experts)
+            self.expert_device_map[new_expert_id] = self.device
+        
         # Add to experts list
         self.experts.append(new_expert)
         
         # Update gating network
         self.gating.update_num_experts(len(self.experts))
+        
+        # Update config's expert device map
+        self.config.expert_device_map = self.expert_device_map
         
         # Add to knowledge graph
         self.knowledge_graph.add_expert(
@@ -290,6 +384,10 @@ class MorphModel(nn.Module):
         expert1 = self.experts[idx1]
         expert2 = self.experts[idx2]
         
+        # Get devices for both experts
+        device1 = self.expert_device_map.get(idx1, self.device)
+        device2 = self.expert_device_map.get(idx2, self.device)
+        
         # Get activation counts for weighted averaging
         expert1_data = self.knowledge_graph.get_expert_metadata(idx1)
         expert2_data = self.knowledge_graph.get_expert_metadata(idx2)
@@ -305,10 +403,15 @@ class MorphModel(nn.Module):
             weight1 = act_count1 / total_count
             weight2 = act_count2 / total_count
         
-        # Merge parameters
+        # Merge parameters - handle different devices
         with torch.no_grad():
             for param1, param2 in zip(expert1.parameters(), expert2.parameters()):
-                param1.data = weight1 * param1.data + weight2 * param2.data
+                # Move param2 to param1's device if needed
+                if param1.device != param2.device:
+                    param2_on_device1 = param2.to(param1.device)
+                    param1.data = weight1 * param1.data + weight2 * param2_on_device1
+                else:
+                    param1.data = weight1 * param1.data + weight2 * param2.data
                 
         # Update activation count for merged expert
         expert1.activation_count += expert2.activation_count
@@ -398,6 +501,21 @@ class MorphModel(nn.Module):
             # Update expert IDs
             for i, expert in enumerate(self.experts):
                 expert.expert_id = i
+            
+            # Rebuild expert device map
+            new_expert_device_map = {}
+            for i in range(len(self.experts)):
+                # Try to find the original expert ID for this expert
+                for old_id, device in self.expert_device_map.items():
+                    if old_id < len(self.experts) and self.experts[old_id].expert_id == i:
+                        new_expert_device_map[i] = device
+                        break
+                else:
+                    # If not found, assign to primary device
+                    new_expert_device_map[i] = self.device
+            
+            self.expert_device_map = new_expert_device_map
+            self.config.expert_device_map = self.expert_device_map
                 
             merged_any = True
         
@@ -422,6 +540,15 @@ class MorphModel(nn.Module):
                 i: self.expert_performance_history.get(i, []) 
                 for i in range(len(self.experts))
             }
+        
+        # Update expert device map
+        self.expert_device_map = {
+            i: self.expert_device_map.get(i, self.device) 
+            for i in range(len(self.experts))
+        }
+        
+        # Update config's expert device map
+        self.config.expert_device_map = self.expert_device_map
         
         # Update gating network for new expert count
         self.gating.update_num_experts(len(self.experts))
@@ -466,6 +593,21 @@ class MorphModel(nn.Module):
             # Update expert IDs
             for i, expert in enumerate(self.experts):
                 expert.expert_id = i
+            
+            # Rebuild expert device map
+            new_expert_device_map = {}
+            for i in range(len(self.experts)):
+                # Try to find the original expert ID for this expert
+                for old_id, device in self.expert_device_map.items():
+                    if old_id < len(self.experts) and self.experts[old_id].expert_id == i:
+                        new_expert_device_map[i] = device
+                        break
+                else:
+                    # If not found, assign to primary device
+                    new_expert_device_map[i] = self.device
+            
+            self.expert_device_map = new_expert_device_map
+            self.config.expert_device_map = self.expert_device_map
                 
             pruned_any = True
         
@@ -581,6 +723,10 @@ class MorphModel(nn.Module):
         Returns:
             Dictionary with loss and metrics
         """
+        # If using a parallel wrapper, delegate to it
+        if self._wrapped_model is not None and not isinstance(self._wrapped_model, MorphModel):
+            return self._wrapped_model.train_step(batch, optimizer, criterion)
+            
         inputs, targets = batch
         
         # Move data to the correct device
@@ -591,7 +737,7 @@ class MorphModel(nn.Module):
         optimizer.zero_grad()
         
         # Mixed precision training if enabled
-        if self.enable_mixed_precision and self.device.type == 'cuda':
+        if self.enable_mixed_precision and any(d.type == 'cuda' for d in self.devices):
             # Forward pass with autocast
             with autocast():
                 outputs = self(inputs, training=True)
@@ -632,6 +778,10 @@ class MorphModel(nn.Module):
         Returns:
             Dictionary with evaluation metrics
         """
+        # If using a parallel wrapper, delegate to it
+        if self._wrapped_model is not None and not isinstance(self._wrapped_model, MorphModel):
+            return self._wrapped_model.evaluate(data_loader, criterion, device)
+            
         self.eval()
         test_loss = 0
         correct = 0

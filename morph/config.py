@@ -1,5 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import torch
+from typing import List, Optional, Dict, Any
+
+from morph.utils.gpu_utils import detect_and_select_gpu, get_optimal_worker_count
 
 
 @dataclass
@@ -58,12 +61,20 @@ class MorphConfig:
     num_epochs: int = 10
     
     # GPU Acceleration
-    device: str = "auto"  # "auto", "cuda", or "cpu" - Auto-detected in __post_init__
+    device: str = "auto"  # "auto", "cuda", "cuda:n", or "cpu" - Auto-detected in __post_init__
     enable_mixed_precision: bool = False  # Whether to use mixed precision training (fp16)
+    gpu_memory_fraction: float = 0.9  # Fraction of GPU memory to use (0.0 to 1.0)
+    gpu_mode: str = "auto"  # "auto", "cpu", "single_gpu", "multi_gpu", "distributed"
+    parallel_strategy: str = "data_parallel"  # "data_parallel", "expert_parallel", "pipeline_parallel"
+    auto_batch_size: bool = True  # Whether to automatically determine optimal batch size
     
     # Data Loading Optimization
-    num_workers: int = 4  # Number of workers for DataLoader
+    num_workers: int = -1  # Number of workers for DataLoader (-1 for auto-detection)
     pin_memory: bool = True  # Whether to use pinned memory for faster CPU->GPU transfer
+    
+    # Multi-GPU settings
+    devices: List[torch.device] = field(default_factory=list)  # List of devices to use
+    expert_device_map: Dict[int, torch.device] = field(default_factory=dict)  # Mapping of expert ID to device
     
     # Test-specific optimizations
     test_mode: bool = False  # Whether to use test-specific optimizations
@@ -82,14 +93,43 @@ class MorphConfig:
                 "specialization_split", # For experts that split specialization
             ]
         
-        # Auto-detect device if set to "auto" or None
-        if self.device is None or self.device == "auto":
-            self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Auto-detect GPU mode and devices
+        if self.gpu_mode == "auto":
+            self.gpu_mode, self.devices = detect_and_select_gpu()
+        else:
+            # Manual configuration
+            if self.gpu_mode == "cpu":
+                self.devices = [torch.device("cpu")]
+            elif self.gpu_mode == "single_gpu":
+                if torch.cuda.is_available():
+                    self.devices = [torch.device("cuda:0")]
+                else:
+                    self.gpu_mode = "cpu"
+                    self.devices = [torch.device("cpu")]
+            elif self.gpu_mode == "multi_gpu":
+                if torch.cuda.is_available() and torch.cuda.device_count() > 1:
+                    self.devices = [torch.device(f"cuda:{i}") for i in range(torch.cuda.device_count())]
+                elif torch.cuda.is_available():
+                    self.gpu_mode = "single_gpu"
+                    self.devices = [torch.device("cuda:0")]
+                else:
+                    self.gpu_mode = "cpu"
+                    self.devices = [torch.device("cpu")]
+        
+        # Set primary device based on first device in devices list
+        if self.devices:
+            self.device = str(self.devices[0])
+        else:
+            self.device = "cpu"
             
         # Enable mixed precision only if using CUDA
-        if self.enable_mixed_precision and self.device != "cuda":
+        if self.enable_mixed_precision and not any(d.type == "cuda" for d in self.devices):
             self.enable_mixed_precision = False
             
         # Enable pin_memory only if using CUDA
-        if self.pin_memory and self.device != "cuda":
+        if self.pin_memory and not any(d.type == "cuda" for d in self.devices):
             self.pin_memory = False
+            
+        # Auto-detect optimal number of workers
+        if self.num_workers == -1:
+            self.num_workers = get_optimal_worker_count()

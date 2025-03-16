@@ -75,7 +75,32 @@ An example demonstrating the Sleep Module's memory consolidation capabilities:
 - Analysis of sleep cycle effects on model performance
 - Visualization of expert merging and specialization
 
-### 5. Multi-Domain Adaptation (Coming Soon)
+### 5. GPU Training (`gpu_training_example.py`)
+
+An example demonstrating how to use GPU acceleration for training MORPH models:
+
+- Automatic GPU detection and configuration
+- Multi-GPU training with different parallelization strategies
+- Mixed precision training for faster performance
+- Expert distribution across multiple GPUs
+- Performance monitoring and visualization
+
+To run this example:
+
+```bash
+# Basic usage with automatic GPU detection
+python gpu_training_example.py
+
+# Use multiple GPUs with expert parallel strategy
+python gpu_training_example.py --gpu-mode multi_gpu --parallel-strategy expert_parallel
+
+# Enable mixed precision training
+python gpu_training_example.py --mixed-precision
+```
+
+See [README_GPU.md](README_GPU.md) for detailed GPU usage instructions.
+
+### 6. Multi-Domain Adaptation (Coming Soon)
 
 An example showing how MORPH can adapt to different data domains:
 

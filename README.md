@@ -11,6 +11,7 @@ MORPH is a novel neural network architecture implementing a **Dynamic Mixture of
 - **Expert Consolidation**: Periodically merges similar experts to optimize memory and prevent redundancy
 - **Sleep Function**: Implements a brain-inspired post-processing mechanism for knowledge consolidation
 - **Continuous Learning**: Designed to learn incrementally without catastrophic forgetting
+- **GPU Acceleration**: Supports automatic GPU detection, multi-GPU training, and mixed precision
 
 ## Architecture Overview
 
@@ -124,6 +125,30 @@ for epoch in range(10):
     print(f"Test accuracy: {eval_metrics['accuracy']:.2f}%")
 ```
 
+## GPU Acceleration
+
+MORPH supports GPU acceleration for faster training and inference:
+
+```python
+# Configure GPU settings
+config = MorphConfig(
+    # ... other settings ...
+    
+    # GPU settings
+    gpu_mode="auto",  # "auto", "cpu", "single_gpu", "multi_gpu"
+    parallel_strategy="data_parallel",  # "data_parallel", "expert_parallel"
+    enable_mixed_precision=True,  # Use mixed precision for faster training
+    auto_batch_size=True,  # Automatically determine optimal batch size
+)
+```
+
+For multi-GPU training, MORPH supports two parallelization strategies:
+
+1. **Data Parallel**: Distributes batches across multiple GPUs
+2. **Expert Parallel**: Distributes experts across multiple GPUs
+
+See [examples/README_GPU.md](examples/README_GPU.md) for detailed GPU usage instructions.
+
 ## Implementation Progress
 
 MORPH is being implemented in five phases:
@@ -185,12 +210,15 @@ Current status:
 | Prioritized Memory Replay | ✅ Complete | 100% |
 | Expert Reorganization | ✅ Complete | 100% |
 | Concept Drift Detection | ✅ Complete | 100% |
+| GPU Acceleration | ✅ Complete | 100% |
 
 See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
 
-## Example: Continual Learning
+## Examples
 
-MORPH excels at continual learning tasks where the data distribution changes over time. The newly implemented `examples/continual_learning_example.py` demonstrates this capability by training on a sequence of rotated MNIST tasks:
+### Continual Learning
+
+MORPH excels at continual learning tasks where the data distribution changes over time. The `examples/continual_learning_example.py` demonstrates this capability by training on a sequence of rotated MNIST tasks:
 
 ```bash
 # Run the continual learning example
@@ -202,6 +230,23 @@ This example:
 2. Trains the model sequentially on each task
 3. Measures catastrophic forgetting on previous tasks
 4. Visualizes how experts are created and specialized during training
+
+### GPU Training
+
+The `examples/gpu_training_example.py` demonstrates how to use GPU acceleration with MORPH:
+
+```bash
+# Basic usage with automatic GPU detection
+python examples/gpu_training_example.py
+
+# Use multiple GPUs with expert parallel strategy
+python examples/gpu_training_example.py --gpu-mode multi_gpu --parallel-strategy expert_parallel
+
+# Enable mixed precision training
+python examples/gpu_training_example.py --mixed-precision
+```
+
+See [examples/README_GPU.md](examples/README_GPU.md) for more details.
 
 ## Documentation
 
@@ -300,4 +345,3 @@ If you use MORPH in your research, please cite:
   journal = {GitHub repository},
   howpublished = {\url{https://github.com/yourusername/project-morph}}
 }
-```
