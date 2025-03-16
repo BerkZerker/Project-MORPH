@@ -400,12 +400,17 @@ def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
         logging.info("No sleep cycles completed yet, nothing to visualize")
         return
     
-    plt.figure(figsize=(14, 10))
+    plt.figure(figsize=(15, 12))
+    
+    # Get sleep metrics if available
+    sleep_metrics = []
+    if hasattr(model, 'get_sleep_metrics'):
+        sleep_metrics = model.get_sleep_metrics()
     
     # Plot sleep cycle frequency adjustments
+    plt.subplot(3, 2, 1)
+    
     if hasattr(model, 'adaptive_sleep_frequency'):
-        plt.subplot(2, 2, 1)
-        
         # If we have sleep events, plot the actual frequency over time
         if sleep_events and len(sleep_events) >= 2:
             sleep_steps = [event[0] for event in sleep_events]
@@ -435,14 +440,20 @@ def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
         plt.legend()
     
     # Plot expert specialization distribution
-    plt.subplot(2, 2, 2)
+    plt.subplot(3, 2, 2)
     
     if hasattr(model, 'knowledge_graph'):
         # Get specialization scores for all experts
         specialization_scores = []
+        expert_ids = []
         for node in model.knowledge_graph.nodes:
             score = model.knowledge_graph.nodes[node].get('specialization_score', 0.5)
             specialization_scores.append(score)
+            expert_ids.append(node)
+        
+        # Sort by expert ID for consistent display
+        sorted_data = sorted(zip(expert_ids, specialization_scores))
+        expert_ids, specialization_scores = zip(*sorted_data) if sorted_data else ([], [])
         
         # Plot histogram
         plt.hist(specialization_scores, bins=10, range=(0, 1), alpha=0.7, color='blue')
@@ -452,7 +463,7 @@ def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
         plt.grid(True, alpha=0.3)
     
     # Plot expert adaptation rates
-    plt.subplot(2, 2, 3)
+    plt.subplot(3, 2, 3)
     
     if hasattr(model, 'knowledge_graph'):
         # Get adaptation rates for all experts
@@ -463,6 +474,10 @@ def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
             adaptation_rates.append(rate)
             expert_ids.append(node)
         
+        # Sort by expert ID
+        sorted_data = sorted(zip(expert_ids, adaptation_rates))
+        expert_ids, adaptation_rates = zip(*sorted_data) if sorted_data else ([], [])
+        
         # Plot bar chart
         plt.bar(expert_ids, adaptation_rates, color='green', alpha=0.7)
         plt.xlabel('Expert ID')
@@ -471,7 +486,7 @@ def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
         plt.grid(True, alpha=0.3)
     
     # Plot expert relationships in knowledge graph
-    plt.subplot(2, 2, 4)
+    plt.subplot(3, 2, 4)
     
     if hasattr(model, 'knowledge_graph'):
         G = model.knowledge_graph
@@ -504,7 +519,8 @@ def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
                 'specialization_split': 'purple',
                 'dependency': 'orange',
                 'composition': 'red',
-                'generic': 'gray'
+                'generic': 'gray',
+                'complementary': 'teal'
             }
             
             # Use defined colors or default to a color cycle
@@ -518,6 +534,317 @@ def visualize_sleep_metrics(model, sleep_events=None, output_path=None):
             plt.text(0.5, 0.5, "No relationships defined yet", 
                     ha='center', va='center', fontsize=12)
             plt.axis('off')
+    
+    # Plot memory replay statistics
+    plt.subplot(3, 2, 5)
+    
+    if sleep_metrics:
+        # Extract memory replay stats
+        cycles = [i+1 for i, _ in enumerate(sleep_metrics)]
+        replay_samples = [m.get('samples_replayed', 0) for m in sleep_metrics]
+        replay_losses = [m.get('avg_loss', 0) for m in sleep_metrics]
+        
+        # Plot samples replayed
+        ax1 = plt.gca()
+        ax1.bar(cycles, replay_samples, color='blue', alpha=0.7)
+        ax1.set_xlabel('Sleep Cycle')
+        ax1.set_ylabel('Samples Replayed', color='blue')
+        ax1.tick_params(axis='y', labelcolor='blue')
+        ax1.set_title('Memory Replay Statistics')
+        
+        # Plot average loss on secondary y-axis
+        ax2 = ax1.twinx()
+        ax2.plot(cycles, replay_losses, 'r-o', linewidth=2)
+        ax2.set_ylabel('Average Loss', color='red')
+        ax2.tick_params(axis='y', labelcolor='red')
+        
+        # Optional: Add high priority sample info if available
+        if any('high_priority_samples' in m for m in sleep_metrics):
+            high_priority = [m.get('high_priority_samples', 0) for m in sleep_metrics]
+            for i, (c, h) in enumerate(zip(cycles, high_priority)):
+                if h > 0:
+                    ax1.text(c, replay_samples[i] + 5, f"HP: {h}", ha='center', fontsize=8)
+    else:
+        plt.text(0.5, 0.5, "No sleep metrics available", 
+                ha='center', va='center', fontsize=12)
+        plt.axis('off')
+    
+    # Plot expert evolution over sleep cycles
+    plt.subplot(3, 2, 6)
+    
+    if sleep_metrics:
+        # Extract expert counts before/after sleep
+        cycles = [i+1 for i, _ in enumerate(sleep_metrics)]
+        experts_before = [m.get('experts_before', 0) for m in sleep_metrics]
+        experts_after = [m.get('experts_after', 0) for m in sleep_metrics]
+        
+        # Plot expert counts
+        plt.plot(cycles, experts_before, 'b-o', linewidth=2, label='Before Sleep')
+        plt.plot(cycles, experts_after, 'g-s', linewidth=2, label='After Sleep')
+        
+        # Add merge and prune annotations
+        for i, m in enumerate(sleep_metrics):
+            merged = m.get('merged_count', 0)
+            pruned = m.get('pruned_count', 0)
+            
+            if merged > 0 or pruned > 0:
+                annotation = []
+                if merged > 0:
+                    annotation.append(f"Merged: {merged}")
+                if pruned > 0:
+                    annotation.append(f"Pruned: {pruned}")
+                    
+                plt.annotate('\n'.join(annotation), (cycles[i], experts_after[i]),
+                           xytext=(10, 10), textcoords='offset points',
+                           bbox=dict(boxstyle="round,pad=0.3", fc="yellow", alpha=0.7))
+        
+        plt.xlabel('Sleep Cycle')
+        plt.ylabel('Number of Experts')
+        plt.title('Expert Evolution During Sleep')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+    else:
+        plt.text(0.5, 0.5, "No sleep metrics available", 
+                ha='center', va='center', fontsize=12)
+        plt.axis('off')
+    
+    plt.tight_layout()
+    
+    # Save or show
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+def visualize_expert_specialization_over_time(model, expert_history=None, 
+                                          output_path=None, time_window=None):
+    """
+    Visualize how expert specialization evolves over time.
+    
+    Args:
+        model: MorphModel instance
+        expert_history: List of (step, expert_metrics) tuples showing expert metrics over time
+        output_path: Path to save visualization (if None, display instead)
+        time_window: Optional time window to focus on (start_step, end_step)
+    """
+    if not expert_history:
+        logging.info("No expert history available, nothing to visualize")
+        return
+    
+    plt.figure(figsize=(15, 10))
+    
+    # Filter by time window if specified
+    if time_window:
+        start_step, end_step = time_window
+        expert_history = [(step, metrics) for step, metrics in expert_history 
+                         if start_step <= step <= end_step]
+    
+    # Extract steps
+    steps = [step for step, _ in expert_history]
+    
+    # Get all expert IDs that appear in the history
+    all_experts = set()
+    for _, metrics in expert_history:
+        all_experts.update(metrics.keys())
+    
+    # Track specialization over time
+    specialization_data = {expert_id: [] for expert_id in all_experts}
+    activation_data = {expert_id: [] for expert_id in all_experts}
+    
+    # Collect data for each expert at each step
+    for step, metrics in expert_history:
+        for expert_id in all_experts:
+            if expert_id in metrics:
+                spec_score = metrics[expert_id].get('specialization_score', None)
+                act_count = metrics[expert_id].get('activation_count', None)
+            else:
+                spec_score = None
+                act_count = None
+                
+            specialization_data[expert_id].append(spec_score)
+            activation_data[expert_id].append(act_count)
+    
+    # Plot specialization evolution
+    plt.subplot(2, 1, 1)
+    
+    # Plot a line for each expert
+    for expert_id, spec_scores in specialization_data.items():
+        # Convert None values to NaN for plotting
+        spec_scores = [float('nan') if s is None else s for s in spec_scores]
+        
+        # Plot with unique color and style
+        plt.plot(steps, spec_scores, 'o-', linewidth=2, 
+               label=f"Expert {expert_id}")
+    
+    plt.xlabel('Training Step')
+    plt.ylabel('Specialization Score')
+    plt.title('Expert Specialization Evolution Over Time')
+    plt.grid(True, alpha=0.3)
+    plt.ylim(0, 1)
+    
+    # Add threshold line if available
+    if hasattr(model, 'config') and hasattr(model.config, 'specialization_threshold'):
+        plt.axhline(y=model.config.specialization_threshold, color='red', linestyle='--',
+                   label=f"Specialization Threshold ({model.config.specialization_threshold})")
+    
+    # Add sleep cycle markers if available
+    if hasattr(model, 'get_sleep_metrics'):
+        sleep_metrics = model.get_sleep_metrics()
+        sleep_steps = [m.get('step', 0) for m in sleep_metrics]
+        
+        for step in sleep_steps:
+            if min(steps) <= step <= max(steps):
+                plt.axvline(x=step, color='purple', linestyle=':', alpha=0.5)
+    
+    plt.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0)
+    
+    # Plot activation counts
+    plt.subplot(2, 1, 2)
+    
+    # Plot a line for each expert
+    for expert_id, act_counts in activation_data.items():
+        # Convert None values to NaN for plotting
+        act_counts = [float('nan') if a is None else a for a in act_counts]
+        
+        # Plot with unique color and style (matching the specialization plot)
+        plt.plot(steps, act_counts, 'o-', linewidth=2, 
+               label=f"Expert {expert_id}")
+    
+    plt.xlabel('Training Step')
+    plt.ylabel('Activation Count')
+    plt.title('Expert Activation Counts Over Time')
+    plt.grid(True, alpha=0.3)
+    
+    # Add sleep cycle markers if available
+    if hasattr(model, 'get_sleep_metrics'):
+        sleep_metrics = model.get_sleep_metrics()
+        sleep_steps = [m.get('step', 0) for m in sleep_metrics]
+        
+        for step in sleep_steps:
+            if min(steps) <= step <= max(steps):
+                plt.axvline(x=step, color='purple', linestyle=':', alpha=0.5)
+                plt.text(step, plt.ylim()[1] * 0.9, "Sleep", rotation=90,
+                        color='purple', alpha=0.7, va='top', ha='right')
+    
+    plt.legend(loc='upper left', bbox_to_anchor=(1.01, 1), borderaxespad=0)
+    
+    plt.tight_layout()
+    
+    # Save or show
+    if output_path:
+        plt.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close()
+    else:
+        plt.show()
+
+
+def visualize_concept_drift_adaptation(drift_metrics, model_metrics, output_path=None):
+    """
+    Visualize how the model adapts to concept drift over time.
+    
+    Args:
+        drift_metrics: Dictionary of concept drift metrics
+        model_metrics: Dictionary of model performance metrics
+        output_path: Path to save visualization (if None, display instead)
+    """
+    if not drift_metrics or 'drift_detected_tasks' not in drift_metrics:
+        logging.info("No drift metrics available, nothing to visualize")
+        return
+    
+    plt.figure(figsize=(15, 10))
+    
+    # Plot drift magnitude and adaptation rate
+    plt.subplot(2, 2, 1)
+    
+    models = list(model_metrics.keys())
+    x = np.arange(len(models))
+    width = 0.35
+    
+    # Extract drift magnitudes and adaptation rates
+    drift_magnitudes = []
+    adaptation_rates = []
+    
+    for model_name in models:
+        if model_name in drift_metrics:
+            model_drift = drift_metrics[model_name]
+            drift_magnitudes.append(model_drift.get('avg_drift_magnitude', 0))
+            adaptation_rates.append(model_drift.get('avg_adaptation_rate', 0))
+        else:
+            drift_magnitudes.append(0)
+            adaptation_rates.append(0)
+    
+    # Plot bar chart
+    plt.bar(x - width/2, drift_magnitudes, width, label='Drift Magnitude', color='red', alpha=0.7)
+    plt.bar(x + width/2, adaptation_rates, width, label='Adaptation Rate', color='green', alpha=0.7)
+    
+    plt.xlabel('Model')
+    plt.ylabel('Magnitude / Rate')
+    plt.title('Concept Drift Magnitude and Adaptation Rate')
+    plt.xticks(x, models)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    
+    # Plot task performance before and after drift
+    plt.subplot(2, 2, 2)
+    
+    # Extract performance data
+    if 'task_performance' in drift_metrics:
+        task_ids = sorted(drift_metrics['task_performance'].keys())
+        
+        for model_name in models:
+            if model_name in drift_metrics['task_performance']:
+                pre_drift = [drift_metrics['task_performance'][model_name].get(task_id, {})
+                             .get('pre_drift_accuracy', 0) for task_id in task_ids]
+                post_drift = [drift_metrics['task_performance'][model_name].get(task_id, {})
+                              .get('post_drift_accuracy', 0) for task_id in task_ids]
+                
+                plt.plot(task_ids, pre_drift, 'o--', label=f"{model_name} Pre-Drift")
+                plt.plot(task_ids, post_drift, 's-', label=f"{model_name} Post-Drift")
+        
+        plt.xlabel('Task ID')
+        plt.ylabel('Accuracy (%)')
+        plt.title('Performance Before and After Drift')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+    else:
+        plt.text(0.5, 0.5, "Task performance data not available", 
+                ha='center', va='center', fontsize=12)
+        plt.axis('off')
+    
+    # Plot drift detection timeline
+    plt.subplot(2, 1, 2)
+    
+    if 'drift_timeline' in drift_metrics:
+        for model_name in models:
+            if model_name in drift_metrics['drift_timeline']:
+                timeline = drift_metrics['drift_timeline'][model_name]
+                steps = [entry['step'] for entry in timeline]
+                magnitudes = [entry['magnitude'] for entry in timeline]
+                
+                plt.plot(steps, magnitudes, 'o-', linewidth=2, label=model_name)
+                
+                # Mark points where adaptation occurred
+                adaptation_steps = [entry['step'] for entry in timeline 
+                                  if entry.get('adaptation_occurred', False)]
+                
+                if adaptation_steps:
+                    adaptation_magnitudes = [timeline[steps.index(step)]['magnitude'] 
+                                          for step in adaptation_steps]
+                    plt.scatter(adaptation_steps, adaptation_magnitudes, 
+                               marker='*', s=150, c='green', 
+                               label=f"{model_name} Adaptation")
+        
+        plt.xlabel('Training Step')
+        plt.ylabel('Drift Magnitude')
+        plt.title('Concept Drift Timeline')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+    else:
+        plt.text(0.5, 0.5, "Drift timeline data not available", 
+                ha='center', va='center', fontsize=12)
+        plt.axis('off')
     
     plt.tight_layout()
     

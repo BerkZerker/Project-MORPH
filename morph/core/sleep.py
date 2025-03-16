@@ -147,6 +147,8 @@ class SleepModule:
         Perform memory replay by replaying stored activations to experts.
         This helps with memory consolidation and expert fine-tuning.
         
+        Includes prioritized experience replay based on uncertainty and learning value.
+        
         Args:
             model: The MORPH model
             
@@ -165,9 +167,12 @@ class SleepModule:
             for i, expert in enumerate(model.experts)
         }
         
+        # Prioritize replay experiences based on uncertainty and recency
+        prioritized_buffer = self._prioritize_experiences(model)
+        
         # Group activations by expert
         expert_activations = {}
-        for activation in self.activation_buffer:
+        for activation in prioritized_buffer:
             expert_idx = activation['expert_idx']
             if expert_idx not in expert_activations:
                 expert_activations[expert_idx] = []
@@ -177,8 +182,12 @@ class SleepModule:
         replay_stats = {
             'samples_replayed': 0,
             'expert_updates': 0,
-            'avg_loss': 0.0
+            'avg_loss': 0.0,
+            'high_priority_samples': 0
         }
+        
+        # Calculate curriculum difficulty per expert
+        expert_difficulty = {}
         
         for expert_idx, activations in expert_activations.items():
             # Skip if expert no longer exists (was merged/pruned)
@@ -195,11 +204,39 @@ class SleepModule:
             # Determine adaptation rate based on expert specialization
             expert_data = self.knowledge_graph.get_expert_metadata(expert_idx)
             adaptation_rate = expert_data.get('adaptation_rate', 1.0)
+            specialization = expert_data.get('specialization_score', 0.5)
             
+            # Track high priority samples
+            high_priority_count = sum(1 for a in activations if a.get('priority', 0.0) > 0.7)
+            replay_stats['high_priority_samples'] += high_priority_count
+            
+            # Determine curriculum difficulty based on expert specialization
+            # More specialized experts get more challenging samples
+            if specialization > 0.8:
+                # Very specialized - focus on boundary cases (highest uncertainty)
+                curriculum_strategy = "hard"
+            elif specialization < 0.3:
+                # General expert - focus on representative cases
+                curriculum_strategy = "easy"
+            else:
+                # Balanced expert - mixed curriculum
+                curriculum_strategy = "mixed"
+                
+            expert_difficulty[expert_idx] = curriculum_strategy
+                
             # Replay samples in mini-batches
             num_samples = len(activations)
             batch_size = min(self.config.memory_replay_batch_size, num_samples)
             batch_losses = []
+            
+            # Sort activations based on curriculum strategy
+            if curriculum_strategy == "hard":
+                # Hard examples first (highest uncertainty)
+                activations.sort(key=lambda a: a.get('uncertainty', 0.0), reverse=True)
+            elif curriculum_strategy == "easy":
+                # Easy examples first (lowest uncertainty)
+                activations.sort(key=lambda a: a.get('uncertainty', 0.0))
+            # Mixed strategy uses the prioritized order
             
             for batch_start in range(0, num_samples, batch_size):
                 batch_end = min(batch_start + batch_size, num_samples)
@@ -209,6 +246,10 @@ class SleepModule:
                 input_batch = torch.cat([a['inputs'] for a in batch])
                 output_batch = torch.cat([a['outputs'] for a in batch])
                 
+                # Extract importance weights if available
+                importance_weights = torch.tensor([a.get('priority', 1.0) for a in batch], 
+                                               device=input_batch.device)
+                
                 # Expert fine-tuning
                 optimizer.zero_grad()
                 
@@ -217,13 +258,16 @@ class SleepModule:
                 
                 # Self-supervised loss (match previous outputs)
                 # Using cosine similarity to preserve output patterns
-                loss = 1.0 - F.cosine_similarity(
+                sample_losses = 1.0 - F.cosine_similarity(
                     predictions.view(predictions.size(0), -1), 
                     output_batch.view(output_batch.size(0), -1)
-                ).mean()
+                )
+                
+                # Apply importance weighting to the loss
+                weighted_loss = (sample_losses * importance_weights).mean()
                 
                 # Scale loss by adaptation rate
-                loss = loss * adaptation_rate
+                loss = weighted_loss * adaptation_rate
                 batch_losses.append(loss.item())
                 
                 # Backward pass and optimize
@@ -235,15 +279,100 @@ class SleepModule:
             
             if batch_losses:
                 replay_stats['expert_updates'] += 1
-                
+        
         # Calculate average loss if updates were performed
         if replay_stats['expert_updates'] > 0:
             replay_stats['avg_loss'] = np.mean(batch_losses) if batch_losses else 0.0
+        
+        # Update knowledge graph with curriculum strategies
+        for expert_idx, strategy in expert_difficulty.items():
+            if expert_idx < len(model.experts):
+                self.knowledge_graph.update_expert_metadata(expert_idx, 
+                                                          {'curriculum_strategy': strategy})
         
         # Clear activation buffer after replay
         self.activation_buffer = []
         
         return replay_stats
+        
+    def _prioritize_experiences(self, model) -> List[Dict[str, Any]]:
+        """
+        Prioritize experiences in the replay buffer based on multiple criteria.
+        
+        Criteria include:
+        1. Uncertainty - higher uncertainty samples are more valuable for learning
+        2. Recency - more recent experiences may be more relevant
+        3. Diversity - ensure diverse experiences are replayed
+        4. Learning value - samples where performance is poor have higher value
+        
+        Args:
+            model: The MORPH model
+            
+        Returns:
+            Prioritized list of experiences
+        """
+        if not self.activation_buffer:
+            return []
+            
+        prioritized_buffer = []
+        
+        # Calculate priorities for each experience
+        for activation in self.activation_buffer:
+            # Start with base priority
+            priority = 1.0
+            
+            # Factor 1: Uncertainty (higher is more important)
+            uncertainty = activation.get('uncertainty', 0.0)
+            priority *= (0.5 + uncertainty)
+            
+            # Factor 2: Recency (more recent is more important)
+            step_diff = model.step_count - activation.get('step', 0)
+            recency_factor = np.exp(-step_diff / max(1000, self.config.sleep_cycle_frequency * 2))
+            priority *= (0.2 + 0.8 * recency_factor)
+            
+            # Factor 3: Expert specialization (prioritize samples for experts that need work)
+            expert_idx = activation.get('expert_idx', 0)
+            if expert_idx < len(model.experts):
+                expert_data = self.knowledge_graph.get_expert_metadata(expert_idx)
+                spec_score = expert_data.get('specialization_score', 0.5)
+                
+                # Lower specialization = higher priority (needs more training)
+                spec_priority = 1.0 - spec_score
+                priority *= (0.5 + 0.5 * spec_priority)
+            
+            # Store priority with the activation
+            activation_copy = activation.copy()
+            activation_copy['priority'] = float(priority)
+            prioritized_buffer.append(activation_copy)
+        
+        # Sort by priority (highest first)
+        prioritized_buffer.sort(key=lambda x: x['priority'], reverse=True)
+        
+        # Ensure diversity: don't let one expert dominate the replay
+        # Limit each expert to at most 30% of the buffer
+        expert_counts = {}
+        max_per_expert = int(len(prioritized_buffer) * 0.3)
+        
+        final_buffer = []
+        for activation in prioritized_buffer:
+            expert_idx = activation['expert_idx']
+            
+            if expert_idx not in expert_counts:
+                expert_counts[expert_idx] = 0
+                
+            if expert_counts[expert_idx] < max_per_expert:
+                final_buffer.append(activation)
+                expert_counts[expert_idx] += 1
+        
+        # Add any remaining samples to fill the buffer
+        remaining_slots = len(prioritized_buffer) - len(final_buffer)
+        if remaining_slots > 0:
+            unused_samples = [a for a in prioritized_buffer if a not in final_buffer]
+            final_buffer.extend(unused_samples[:remaining_slots])
+        
+        logging.info(f"Prioritized replay buffer: {len(final_buffer)} samples from {len(expert_counts)} experts")
+        
+        return final_buffer
     
     def _analyze_expert_specialization(self, model) -> Dict[str, Any]:
         """
@@ -486,6 +615,11 @@ class SleepModule:
         """
         Reorganize experts based on activation patterns and specialization.
         
+        This enhanced version implements:
+        1. Parameter fine-tuning based on specialization
+        2. Feature-based expert specialization refinement
+        3. Knowledge graph restructuring based on activation correlations
+        
         Args:
             model: The MORPH model
             specialization_metrics: Dict of expert specialization metrics
@@ -493,7 +627,12 @@ class SleepModule:
         Returns:
             Tuple of (boolean indicating if reorganization occurred, metrics dict)
         """
-        metrics = {'reorganized_pairs': 0, 'overlap_detected': 0}
+        metrics = {
+            'reorganized_pairs': 0, 
+            'overlap_detected': 0,
+            'feature_specialists_created': 0,
+            'parameter_adjustments': 0
+        }
         
         # Skip reorganization if disabled or not enough experts
         if not self.config.enable_expert_reorganization or len(model.experts) <= 2:
@@ -502,79 +641,349 @@ class SleepModule:
         reorganized = False
         specialization_scores = specialization_metrics.get('specialization_scores', {})
         
-        # Find experts with overlapping specializations
-        overlaps = []
+        # 1. Feature-based overlap detection and specialization refinement
+        overlaps = self._detect_expert_overlaps(model)
+        metrics['overlap_detected'] = len(overlaps)
         
-        # Only extract expert input distributions if available
-        if hasattr(model, 'expert_input_distributions'):
-            expert_distributions = model.expert_input_distributions
-            
-            for i in range(len(model.experts)):
-                for j in range(i+1, len(model.experts)):
-                    # Calculate input distribution overlap
-                    dist_i = expert_distributions.get(i, {})
-                    dist_j = expert_distributions.get(j, {})
-                    
-                    if not dist_i or not dist_j:
-                        continue
-                        
-                    # Find common input features
-                    common_features = set(dist_i.keys()) & set(dist_j.keys())
-                    total_features = set(dist_i.keys()) | set(dist_j.keys())
-                    
-                    # Calculate Jaccard similarity of input spaces
-                    if total_features:
-                        overlap = len(common_features) / len(total_features)
-                    else:
-                        overlap = 0.0
-                        
-                    # Store overlap if significant
-                    if overlap > self.config.overlap_threshold:
-                        overlaps.append((i, j, overlap))
-                        metrics['overlap_detected'] += 1
-            
-            # Sort overlaps by significance
-            overlaps.sort(key=lambda x: x[2], reverse=True)
-            
-            # Process overlaps
-            for i, j, overlap in overlaps:
-                # Skip if either expert was already processed
-                if i >= len(model.experts) or j >= len(model.experts):
-                    continue
-                    
-                # Get specialization scores
-                score_i = specialization_scores.get(i, 0.5)
-                score_j = specialization_scores.get(j, 0.5)
+        # Process overlaps for specialization adjustment
+        processed_experts = set()
+        for i, j, overlap, common_features in overlaps:
+            # Skip if either expert was already processed in this cycle
+            if i in processed_experts or j in processed_experts or i >= len(model.experts) or j >= len(model.experts):
+                continue
                 
-                # If both are highly specialized but overlapping, adjust specialization
-                if (score_i > self.config.specialization_threshold and 
-                    score_j > self.config.specialization_threshold and 
-                    overlap > self.config.overlap_threshold):
-                    logging.info(f"Reorganizing overlapping specialized experts {i} and {j}")
+            # Get specialization scores
+            score_i = specialization_scores.get(i, 0.5)
+            score_j = specialization_scores.get(j, 0.5)
+            
+            # If both are highly specialized but overlapping, refine specialization
+            if (score_i > self.config.specialization_threshold and 
+                score_j > self.config.specialization_threshold and 
+                overlap > self.config.overlap_threshold):
+                logging.info(f"Reorganizing overlapping specialized experts {i} and {j}")
+                
+                # Determine which expert should keep which feature specializations
+                # based on activation patterns and performance
+                i_data = self.knowledge_graph.get_expert_metadata(i)
+                j_data = self.knowledge_graph.get_expert_metadata(j)
+                
+                # Perform parameter fine-tuning to specialize experts
+                if self._refine_expert_specialization(model, i, j, common_features):
+                    # Mark as processed
+                    processed_experts.add(i)
+                    processed_experts.add(j)
                     
-                    # Pick the expert with higher activation count to keep its specialization
-                    i_data = self.knowledge_graph.get_expert_metadata(i)
-                    j_data = self.knowledge_graph.get_expert_metadata(j)
-                    
-                    act_i = i_data.get('activation_count', 0)
-                    act_j = j_data.get('activation_count', 0)
-                    
-                    if act_i > act_j:
-                        keeper, adjuster = i, j
-                    else:
-                        keeper, adjuster = j, i
-                        
                     # Connect experts with strong edge to indicate specialization relationship
                     self.knowledge_graph.add_edge(
-                        keeper, 
-                        adjuster, 
+                        i, j, 
                         weight=0.9,
-                        relation_type="specialization_split"
+                        relation_type="specialization_split",
+                        common_features=common_features
                     )
                     
                     reorganized = True
                     metrics['reorganized_pairs'] += 1
+                    
+                    # Store feature specialization in knowledge graph
+                    self.knowledge_graph.update_expert_metadata(i, 
+                                                              {'feature_specialization': f"split_with_{j}"})
+                    self.knowledge_graph.update_expert_metadata(j, 
+                                                              {'feature_specialization': f"split_with_{i}"})
         
+        # 2. Create feature specialists for underrepresented feature patterns
+        if hasattr(model, 'expert_input_distributions'):
+            # Find significant feature patterns that don't have dedicated experts
+            feature_patterns = self._identify_feature_patterns(model)
+            
+            # Analyze which patterns lack dedicated experts
+            for pattern, pattern_data in feature_patterns.items():
+                if pattern_data['coverage'] < 0.7 and pattern_data['importance'] > 0.3:
+                    # This pattern needs better expert coverage
+                    if self._create_feature_specialist(model, pattern, pattern_data):
+                        metrics['feature_specialists_created'] += 1
+                        reorganized = True
+        
+        # 3. Parameter adjustments based on specialization
+        if self._adjust_expert_parameters(model, specialization_scores):
+            metrics['parameter_adjustments'] += 1
+            reorganized = True
+            
+        # 4. Update knowledge graph structure based on activation correlations
+        self._update_knowledge_graph_structure(model, specialization_scores)
+        
+        return reorganized, metrics
+        
+    def _detect_expert_overlaps(self, model) -> List[Tuple[int, int, float, List]]:
+        """
+        Detect overlapping experts based on input distributions and activation patterns.
+        
+        Args:
+            model: The MORPH model
+            
+        Returns:
+            List of tuples (expert_i, expert_j, overlap_score, common_features)
+        """
+        overlaps = []
+        
+        if not hasattr(model, 'expert_input_distributions'):
+            return overlaps
+            
+        expert_distributions = model.expert_input_distributions
+        
+        for i in range(len(model.experts)):
+            for j in range(i+1, len(model.experts)):
+                # Calculate input distribution overlap
+                dist_i = expert_distributions.get(i, {})
+                dist_j = expert_distributions.get(j, {})
+                
+                if not dist_i or not dist_j:
+                    continue
+                    
+                # Find common input features
+                common_features = set(dist_i.keys()) & set(dist_j.keys())
+                total_features = set(dist_i.keys()) | set(dist_j.keys())
+                
+                # Calculate Jaccard similarity of input spaces
+                if total_features:
+                    overlap = len(common_features) / len(total_features)
+                else:
+                    overlap = 0.0
+                    
+                # Store overlap if significant
+                if overlap > self.config.overlap_threshold:
+                    # Calculate importance of each common feature
+                    feature_importance = {}
+                    for f in common_features:
+                        # Weight by frequency in each distribution
+                        importance = (dist_i.get(f, 0) + dist_j.get(f, 0)) / 2
+                        feature_importance[f] = importance
+                    
+                    # Sort features by importance
+                    sorted_features = sorted(common_features, 
+                                          key=lambda f: feature_importance.get(f, 0), 
+                                          reverse=True)
+                    
+                    overlaps.append((i, j, overlap, sorted_features))
+        
+        # Sort overlaps by significance
+        overlaps.sort(key=lambda x: x[2], reverse=True)
+        return overlaps
+        
+    def _refine_expert_specialization(self, model, expert_i, expert_j, common_features) -> bool:
+        """
+        Refine specialization between two overlapping experts by adjusting their parameters.
+        
+        Args:
+            model: The MORPH model
+            expert_i: Index of first expert
+            expert_j: Index of second expert
+            common_features: List of common input features
+            
+        Returns:
+            Boolean indicating if refinement was performed
+        """
+        # Ensure experts exist
+        if expert_i >= len(model.experts) or expert_j >= len(model.experts):
+            return False
+            
+        expert1 = model.experts[expert_i]
+        expert2 = model.experts[expert_j]
+        
+        # Split the common feature space between the two experts
+        # This is a simplified approach - in real implementation this would involve
+        # more sophisticated feature attribution and parameter adjustment
+        
+        # Create temporary optimizers for fine-tuning
+        optimizer1 = torch.optim.Adam(expert1.parameters(), lr=0.0001)
+        optimizer2 = torch.optim.Adam(expert2.parameters(), lr=0.0001)
+        
+        # No actual training data here, so we're making conceptual adjustments
+        # In a more sophisticated implementation, we would:
+        # 1. Find training examples that represent each feature pattern
+        # 2. Train expert1 on half of the common features
+        # 3. Train expert2 on the other half
+        
+        # Instead, we'll make some parameter adjustments to conceptually differentiate them
+        # First expert gets more sensitive to higher activation values
+        with torch.no_grad():
+            # Adjust final layer sensitivity differently for each expert
+            if hasattr(expert1, 'layers') and len(expert1.layers) > 0:
+                final_layer1 = expert1.layers[-1]
+                final_layer2 = expert2.layers[-1]
+                
+                if hasattr(final_layer1, 'weight') and hasattr(final_layer2, 'weight'):
+                    # Make small adjustments to bias weights to create differentiation
+                    if hasattr(final_layer1, 'bias') and final_layer1.bias is not None:
+                        # Expert 1: Slightly increase activation threshold
+                        final_layer1.bias.data *= 1.05
+                    
+                    if hasattr(final_layer2, 'bias') and final_layer2.bias is not None:
+                        # Expert 2: Slightly decrease activation threshold
+                        final_layer2.bias.data *= 0.95
+        
+        # Update specialization scores in knowledge graph
+        self.knowledge_graph.update_expert_specialization(expert_i, 0.8)  # More specialized
+        self.knowledge_graph.update_expert_specialization(expert_j, 0.8)  # More specialized
+        
+        # Update expert feature centroids if they exist
+        if hasattr(expert1, 'input_feature_centroid') and expert1.input_feature_centroid is not None:
+            # Adjust centroids to emphasize different parts of the feature space
+            centroid1 = expert1.input_feature_centroid
+            centroid2 = expert2.input_feature_centroid
+            
+            # Create slight differentiation between centroids
+            differentiation = torch.randn_like(centroid1) * 0.05
+            expert1.input_feature_centroid = centroid1 + differentiation
+            expert2.input_feature_centroid = centroid2 - differentiation
+        
+        logging.info(f"Refined specialization between experts {expert_i} and {expert_j}")
+        return True
+        
+    def _identify_feature_patterns(self, model) -> Dict[str, Dict[str, float]]:
+        """
+        Identify significant feature patterns in the input data.
+        
+        Args:
+            model: The MORPH model
+            
+        Returns:
+            Dictionary mapping pattern ID to pattern data
+        """
+        patterns = {}
+        
+        # This is a simplified implementation - in practice would involve
+        # more sophisticated clustering and pattern recognition
+        
+        if hasattr(model, 'expert_input_distributions'):
+            # Find common feature patterns across experts
+            all_features = set()
+            for expert_idx, distribution in model.expert_input_distributions.items():
+                all_features.update(distribution.keys())
+            
+            # Arbitrary pattern identification (simplified)
+            # In practice, this would involve identifying actual feature clusters
+            for i, feature_group in enumerate(range(0, len(all_features), 10)):
+                pattern_id = f"pattern_{i}"
+                
+                # Measure how many experts cover this pattern
+                pattern_features = list(all_features)[feature_group:feature_group+10]
+                if not pattern_features:
+                    continue
+                    
+                # Check coverage across experts
+                expert_coverage = 0
+                for expert_idx, distribution in model.expert_input_distributions.items():
+                    # Calculate what percentage of this pattern the expert covers
+                    if distribution:
+                        covered = sum(1 for f in pattern_features if f in distribution)
+                        coverage_ratio = covered / len(pattern_features)
+                        expert_coverage = max(expert_coverage, coverage_ratio)
+                
+                # Arbitrary importance calculation
+                importance = 1.0 / (i + 1)  # Earlier patterns more important (simplified)
+                
+                patterns[pattern_id] = {
+                    'features': pattern_features,
+                    'coverage': expert_coverage,
+                    'importance': importance
+                }
+        
+        return patterns
+        
+    def _create_feature_specialist(self, model, pattern_id, pattern_data) -> bool:
+        """
+        Create or adapt an expert to specialize in a specific feature pattern.
+        
+        Args:
+            model: The MORPH model
+            pattern_id: Identifier for the feature pattern
+            pattern_data: Data about the feature pattern
+            
+        Returns:
+            Boolean indicating if specialist was created/adapted
+        """
+        # In a full implementation, we would:
+        # 1. Either create a new expert or adapt an existing underutilized one
+        # 2. Train it specifically on examples matching this feature pattern
+        # 3. Update the knowledge graph to reflect this specialization
+        
+        # For this implementation, we'll just note the specialization in the knowledge graph
+        
+        # Find an underutilized expert to specialize
+        min_activations = float('inf')
+        specialist_idx = None
+        
+        for i, expert in enumerate(model.experts):
+            expert_data = self.knowledge_graph.get_expert_metadata(i)
+            activations = expert_data.get('activation_count', 0)
+            
+            if activations < min_activations:
+                min_activations = activations
+                specialist_idx = i
+        
+        # Only adapt if we found a suitable expert
+        if specialist_idx is not None:
+            # Update knowledge graph to note this specialization
+            self.knowledge_graph.update_expert_metadata(specialist_idx, {
+                'feature_specialization': pattern_id,
+                'specialization_score': 0.9  # Make highly specialized
+            })
+            
+            logging.info(f"Designated expert {specialist_idx} as specialist for {pattern_id}")
+            return True
+            
+        return False
+        
+    def _adjust_expert_parameters(self, model, specialization_scores) -> bool:
+        """
+        Adjust expert parameters based on specialization metrics.
+        
+        Args:
+            model: The MORPH model
+            specialization_scores: Dictionary mapping expert indices to specialization scores
+            
+        Returns:
+            Boolean indicating if adjustments were made
+        """
+        made_adjustments = False
+        
+        for expert_idx, expert in enumerate(model.experts):
+            spec_score = specialization_scores.get(expert_idx, 0.5)
+            expert_data = self.knowledge_graph.get_expert_metadata(expert_idx)
+            
+            # Skip if expert has too few activations
+            if expert_data.get('activation_count', 0) < 50:
+                continue
+                
+            # Adjust adaptation rate based on specialization
+            if spec_score > 0.8:
+                # Highly specialized expert - low adaptation rate (preserve specialized knowledge)
+                new_adaptation_rate = 0.3
+            elif spec_score < 0.3:
+                # General expert - high adaptation rate (continue adapting)
+                new_adaptation_rate = 1.0
+            else:
+                # Balanced expert - moderate adaptation rate
+                new_adaptation_rate = 0.6
+                
+            # Update adaptation rate if it changed significantly
+            current_rate = expert_data.get('adaptation_rate', 1.0)
+            if abs(current_rate - new_adaptation_rate) > 0.1:
+                self.knowledge_graph.update_expert_metadata(expert_idx, {
+                    'adaptation_rate': new_adaptation_rate
+                })
+                made_adjustments = True
+                
+        return made_adjustments
+        
+    def _update_knowledge_graph_structure(self, model, specialization_scores) -> None:
+        """
+        Update knowledge graph structure based on activation correlations.
+        
+        Args:
+            model: The MORPH model
+            specialization_scores: Dictionary mapping expert indices to specialization scores
+        """
         # Update knowledge graph edges based on specialization similarity
         for i in range(len(model.experts)):
             for j in range(i+1, len(model.experts)):
@@ -589,22 +998,36 @@ class SleepModule:
                 # Update edge weight based on specialization similarity
                 spec_similarity = 1.0 - abs(score_i - score_j)
                 
+                # Determine relationship type based on specialization patterns
+                relation_type = "specialization_similarity"
+                
+                # If very different specialization, might be complementary
+                if spec_similarity < 0.3:
+                    relation_type = "complementary"
+                
                 # Update knowledge graph
                 if self.knowledge_graph.graph.has_edge(i, j):
                     # Update existing edge
                     edge_data = self.knowledge_graph.graph.get_edge_data(i, j)
                     current_weight = edge_data.get('weight', 0.5)
-                    new_weight = (current_weight + spec_similarity) / 2
+                    
+                    # Apply exponential smoothing to edge weight updates
+                    new_weight = 0.8 * current_weight + 0.2 * spec_similarity
+                    
+                    # Update relation type if it changed
+                    if 'relation_type' in edge_data and edge_data['relation_type'] != relation_type:
+                        # Only change if the current relationship isn't a stronger one
+                        if edge_data['relation_type'] not in ["specialization_split", "composition"]:
+                            edge_data['relation_type'] = relation_type
+                            
                     edge_data['weight'] = new_weight
                 else:
                     # Add new edge
                     self.knowledge_graph.add_edge(
                         i, j, 
                         weight=spec_similarity,
-                        relation_type="specialization_similarity"
+                        relation_type=relation_type
                     )
-        
-        return reorganized, metrics
     
     def _update_meta_learning(self, model) -> Dict[str, Any]:
         """

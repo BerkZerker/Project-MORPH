@@ -5,590 +5,453 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 import logging
-from collections import defaultdict
-
-# Set up logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+from tqdm import tqdm
+import time
+from typing import Dict, List, Tuple
 
 # Add parent directory to path to import morph
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from morph.config import MorphConfig
 from morph.core.model import MorphModel
-from morph.utils.data import get_mnist_dataloaders, ContinualTaskDataset
+from morph.utils.data import get_mnist_dataloaders
+from morph.utils.benchmarks import (
+    StandardModel,
+    EWCModel,
+    ContinualLearningBenchmark,
+    create_rotating_mnist_tasks
+)
 from morph.utils.visualization import (
-    visualize_knowledge_graph, 
+    visualize_knowledge_graph,
     plot_expert_activations,
     visualize_expert_lifecycle,
-    visualize_sleep_metrics
+    visualize_sleep_metrics,
+    visualize_expert_specialization_over_time,
+    visualize_concept_drift_adaptation
 )
 
-
-class RotatedMNISTTask:
-    """Helper class to generate a series of related but different tasks using MNIST."""
-    
-    def __init__(self, base_rotation=0, task_count=5, samples_per_task=10000, rotation_increment=15):
-        """
-        Initialize the RotatedMNISTTask generator.
-        
-        Args:
-            base_rotation: Initial rotation in degrees
-            task_count: Number of tasks to generate
-            samples_per_task: Number of samples per task
-            rotation_increment: Degrees to rotate for each new task
-        """
-        self.base_rotation = base_rotation
-        self.task_count = task_count
-        self.samples_per_task = samples_per_task
-        self.rotation_increment = rotation_increment
-        
-        # Load MNIST dataset
-        from torchvision import datasets, transforms
-        
-        self.base_dataset = datasets.MNIST(
-            root='./data', 
-            train=True, 
-            download=True, 
-            transform=transforms.ToTensor()
-        )
-    
-    def get_task_datasets(self):
-        """
-        Generate task datasets with increasingly rotated MNIST digits.
-        
-        Returns:
-            Dictionary mapping task_id to task datasets
-        """
-        from torchvision import transforms
-        
-        task_datasets = {}
-        
-        for task_id in range(self.task_count):
-            # Calculate rotation for this task
-            rotation = self.base_rotation + (task_id * self.rotation_increment)
-            
-            # Create transform for this task
-            transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.RandomRotation((rotation, rotation)),  # Fixed rotation
-                transforms.Normalize((0.1307,), (0.3081,))
-            ])
-            
-            # Create a custom dataset with rotated images
-            dataset = datasets.MNIST(
-                root='./data', 
-                train=True, 
-                download=True, 
-                transform=transform
-            )
-            
-            # Subsample to desired size
-            indices = torch.randperm(len(dataset))[:self.samples_per_task]
-            task_datasets[task_id] = torch.utils.data.Subset(dataset, indices)
-        
-        return task_datasets
-
-
-def evaluate_forgetting(model, task_datasets, device, n_samples=1000):
-    """
-    Evaluate catastrophic forgetting on previous tasks.
-    
-    Args:
-        model: The MORPH model
-        task_datasets: Dictionary of task datasets
-        device: Device to run evaluation on
-        n_samples: Number of samples to evaluate per task
-        
-    Returns:
-        Dictionary mapping task_id to accuracy
-    """
-    model.eval()
-    task_accuracies = {}
-    
-    for task_id, dataset in task_datasets.items():
-        # Create a limited evaluation set
-        indices = torch.randperm(len(dataset))[:n_samples]
-        eval_set = torch.utils.data.Subset(dataset, indices)
-        eval_loader = torch.utils.data.DataLoader(
-            eval_set, batch_size=64, shuffle=False
-        )
-        
-        correct = 0
-        total = 0
-        
-        with torch.no_grad():
-            for data, target in eval_loader:
-                data, target = data.to(device), target.to(device)
-                
-                # Flatten images
-                data = data.view(data.size(0), -1)
-                
-                # Forward pass
-                output = model(data, training=False)
-                
-                # Calculate accuracy
-                _, predicted = output.max(1)
-                total += target.size(0)
-                correct += predicted.eq(target).sum().item()
-        
-        accuracy = 100. * correct / total
-        task_accuracies[task_id] = accuracy
-        
-    return task_accuracies
-
-
-def visualize_task_performance(task_accuracies_history, output_path=None):
-    """
-    Visualize performance on each task over time.
-    
-    Args:
-        task_accuracies_history: List of (step, {task_id: accuracy}) pairs
-        output_path: Path to save visualization
-    """
-    plt.figure(figsize=(12, 6))
-    
-    # Extract steps and organize accuracies by task
-    steps = [step for step, _ in task_accuracies_history]
-    
-    # Get all task_ids
-    all_task_ids = set()
-    for _, accuracies in task_accuracies_history:
-        all_task_ids.update(accuracies.keys())
-    
-    # Colors for tasks
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(all_task_ids)))
-    
-    # Plot accuracy for each task over time
-    for i, task_id in enumerate(sorted(all_task_ids)):
-        accuracies = [acc.get(task_id, float('nan')) for _, acc in task_accuracies_history]
-        
-        # Label first occurrence of task
-        task_steps = []
-        for j, (step, acc_dict) in enumerate(task_accuracies_history):
-            if task_id in acc_dict:
-                task_steps.append(step)
-                
-        # Find first non-NaN value
-        first_idx = next((i for i, val in enumerate(accuracies) if not np.isnan(val)), None)
-        
-        # Plot with appropriate label
-        plt.plot(steps, accuracies, '-o', color=colors[i], linewidth=2, 
-                label=f'Task {task_id}', alpha=0.8)
-        
-        # Mark first occurrence
-        if first_idx is not None:
-            plt.scatter([steps[first_idx]], [accuracies[first_idx]], color=colors[i], 
-                       s=100, zorder=10, edgecolor='black')
-    
-    plt.xlabel('Training Step')
-    plt.ylabel('Accuracy (%)')
-    plt.title('Task Performance Over Time (Catastrophic Forgetting Analysis)')
-    plt.grid(True, alpha=0.3)
-    plt.legend()
-    
-    # Highlight regions when each task was the active task
-    task_regions = defaultdict(list)
-    active_task = None
-    
-    # Save or show
-    if output_path:
-        plt.savefig(output_path, dpi=300, bbox_inches='tight')
-        plt.close()
-    else:
-        plt.tight_layout()
-        plt.show()
-
-
 def main():
-    # Create output directory for results
-    os.makedirs('results', exist_ok=True)
-    os.makedirs('results/continual', exist_ok=True)
+    # Set up logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
     
-    # Create rotated MNIST tasks
-    task_generator = RotatedMNISTTask(
-        base_rotation=0, 
-        task_count=5,  # 5 tasks with increasing rotation
-        samples_per_task=10000,
-        rotation_increment=15  # Each task rotates digits 15 degrees more
-    )
+    # Create output directory for results
+    os.makedirs('results', exist_ok=True)
+    os.makedirs('results/continual_learning', exist_ok=True)
     
-    task_datasets = task_generator.get_task_datasets()
+    # Run the advanced continual learning benchmark
+    run_continual_learning_benchmark(device)
     
-    # Define task schedule
-    task_schedule = {}
-    steps_per_task = 2000  # Show each task for this many steps
-    current_step = 0
+def create_enhanced_morph_model(device):
+    """
+    Create an enhanced MORPH model with the improved sleep module.
     
-    for task_id in range(len(task_datasets)):
-        # Task starts at current_step and ends after steps_per_task
-        task_schedule[task_id] = (current_step, current_step + steps_per_task)
-        current_step += steps_per_task
-    
-    # Create continual learning dataset
-    continual_dataset = ContinualTaskDataset(task_datasets, task_schedule)
-    
-    # Configure the MORPH model with settings optimized for continual learning
+    Args:
+        device: Device to create the model on
+        
+    Returns:
+        Configured MORPH model
+    """
+    # Configure the model with enhanced sleep settings
     config = MorphConfig(
-        input_size=784,  # 28x28 MNIST images
+        input_size=784,  # 28x28 MNIST images flattened
         expert_hidden_size=256,
         output_size=10,  # 10 MNIST classes
-        num_initial_experts=3,  # Start with fewer experts
-        expert_k=2,
+        num_initial_experts=3,
+        expert_k=2,  # Number of experts to route to
         
-        # Dynamic expert creation settings - more aggressive creation
+        # Dynamic expert creation settings
         enable_dynamic_experts=True,
-        expert_creation_uncertainty_threshold=0.2,  # Lower threshold to encourage expert creation
-        min_experts=3,
+        min_experts=2,
         max_experts=15,
+        expert_creation_uncertainty_threshold=0.25,
         
-        # Expert merging and pruning settings - less aggressive merging
+        # Enhanced sleep cycle settings
         enable_sleep=True,
-        sleep_cycle_frequency=250,  # More frequent sleep cycles
-        enable_adaptive_sleep=True,
-        min_sleep_frequency=100,
-        max_sleep_frequency=500,
-        expert_similarity_threshold=0.85,  # Higher threshold to prevent premature merging
-        dormant_steps_threshold=1500,  # Give experts more time before pruning
-        min_lifetime_activations=50,
+        sleep_cycle_frequency=300,  # Base frequency for sleep cycles
+        enable_adaptive_sleep=True,  # Enable adaptive sleep scheduling
+        min_sleep_frequency=150,     # Minimum steps between sleep cycles
+        max_sleep_frequency=600,     # Maximum steps between sleep cycles
         
-        # Memory replay settings - more memory
-        memory_replay_batch_size=64,
-        memory_buffer_size=5000,  # Larger buffer to remember more examples
-        replay_learning_rate=0.0001,
+        # Expert merging and pruning
+        expert_similarity_threshold=0.75,  # Similarity threshold for merging
+        dormant_steps_threshold=500,  # Steps before considering an expert dormant
+        min_lifetime_activations=50,  # Min activations to avoid pruning
         
-        # Expert reorganization - improved specialization
-        enable_expert_reorganization=True,
-        specialization_threshold=0.65,
-        overlap_threshold=0.25,
+        # Memory replay settings
+        memory_replay_batch_size=32,  # Batch size for memory replay
+        memory_buffer_size=1000,      # Maximum size of activation buffer
+        replay_learning_rate=0.0001,  # Learning rate for replay fine-tuning
+        
+        # Expert reorganization
+        enable_expert_reorganization=True,  # Whether to reorganize experts
+        specialization_threshold=0.7,  # Threshold for considering an expert specialized
+        overlap_threshold=0.3,  # Threshold for considering expert overlap significant
         
         # Knowledge graph settings
-        knowledge_edge_decay=0.98,  # Slower decay
-        knowledge_edge_min=0.05,
+        knowledge_edge_decay=0.95,
+        knowledge_edge_min=0.1,
         
-        # Meta-learning - more frequent updates
-        enable_meta_learning=True,
-        meta_learning_intervals=1,  # Every sleep cycle
+        # Meta-learning
+        enable_meta_learning=True,  # Whether to enable meta-learning optimizations
+        meta_learning_intervals=2,  # Sleep cycles between meta-learning updates
         
-        # Training settings
-        batch_size=64,
-        num_epochs=1,  # Will control training by steps instead of epochs
-        learning_rate=0.001
+        # Learning rate and batch size
+        learning_rate=0.001,
+        batch_size=64
     )
     
-    # Create the MORPH model
+    # Create the model
     model = MorphModel(config).to(device)
-    logging.info(f"Created MORPH model with {len(model.experts)} initial experts")
+    logging.info(f"Created enhanced MORPH model with {len(model.experts)} initial experts")
     
-    # Define loss function and optimizer
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(
-        model.parameters(),
-        lr=config.learning_rate,
-        weight_decay=config.weight_decay
+    return model, config
+
+def run_continual_learning_benchmark(device):
+    """
+    Run comprehensive continual learning benchmark comparing MORPH with baseline models.
+    
+    Args:
+        device: Device to run on
+    """
+    # Create tasks (rotated MNIST)
+    num_tasks = 5
+    tasks = create_rotating_mnist_tasks(num_tasks=num_tasks, samples_per_task=5000, feature_dim=784)
+    
+    # Setup models for comparison
+    logging.info("Setting up models for benchmarking...")
+    
+    # Enhanced MORPH model
+    morph_model, morph_config = create_enhanced_morph_model(device)
+    
+    # Standard neural network model
+    standard_model = StandardModel(
+        input_size=784,
+        hidden_size=256,
+        output_size=10,
+        num_layers=2
+    ).to(device)
+    
+    # Elastic Weight Consolidation (EWC) model
+    ewc_model = EWCModel(
+        input_size=784,
+        hidden_size=256,
+        output_size=10,
+        ewc_lambda=5000
+    ).to(device)
+    
+    # Create optimizers
+    morph_optimizer = optim.Adam(
+        morph_model.parameters(), 
+        lr=morph_config.learning_rate
     )
     
-    # Create a data loader that will advance through the continual learning tasks
-    dataloader = torch.utils.data.DataLoader(
-        continual_dataset,
-        batch_size=config.batch_size,
-        shuffle=True,
-        num_workers=2,
-        drop_last=True
+    standard_optimizer = optim.Adam(
+        standard_model.parameters(), 
+        lr=0.001
     )
     
-    # Tracking metrics
-    expert_counts = []
-    merge_events = []
-    create_events = []
-    sleep_events = []
-    task_accuracies_history = []
-    active_task_history = []
+    ewc_optimizer = optim.Adam(
+        ewc_model.parameters(),
+        lr=0.001
+    )
     
-    # Variables for tracking
-    step_counter = 0
-    current_active_task = 0
+    # Create model dictionary for benchmark
+    models = {
+        "MORPH": morph_model,
+        "Standard NN": standard_model,
+        "EWC": ewc_model
+    }
     
-    # Override the sleep method to track events
-    original_sleep = model.sleep
+    optimizers = {
+        "MORPH": morph_optimizer,
+        "Standard NN": standard_optimizer,
+        "EWC": ewc_optimizer
+    }
     
-    def instrumented_sleep():
-        nonlocal step_counter, sleep_events
-        
-        logging.info(f"[Step {step_counter}] Starting sleep cycle")
-        
-        # Store metrics before sleep
-        num_experts_before = len(model.experts)
-        
-        # Call original sleep method
-        original_sleep()
-        
-        # Store sleep event
-        expert_delta = len(model.experts) - num_experts_before
-        sleep_metrics = {
-            'expert_change': expert_delta,
-            'expert_count_after': len(model.experts),
-            'cycle_number': model.sleep_cycles_completed,
-            'adaptive_frequency': getattr(model, 'adaptive_sleep_frequency',
-                                         model.config.sleep_cycle_frequency)
-        }
-        sleep_events.append((step_counter, sleep_metrics))
-        
-        # Update expert lifecycle log
-        expert_counts.append((step_counter, len(model.experts)))
-        
-        # Track sleep event
-        logging.info(f"[Step {step_counter}] Sleep cycle completed - "
-                   f"Next cycle in {sleep_metrics['adaptive_frequency']} steps")
+    # Create task similarities (simplified example)
+    task_similarities = {}
+    for i in range(num_tasks):
+        for j in range(i+1, num_tasks):
+            # Tasks with smaller rotation differences are more similar
+            similarity = 1.0 - (abs(j - i) / num_tasks)
+            task_similarities[(i, j)] = similarity
     
-    # Replace sleep method
-    model.sleep = instrumented_sleep
+    # Set up benchmark with concept drift detection
+    benchmark = ContinualLearningBenchmark(
+        tasks=tasks,
+        input_size=784,
+        output_size=10,
+        device=device,
+        drift_detection=True,
+        task_similarities=task_similarities
+    )
     
-    # Override expert creation method
-    original_create = model._create_new_expert
+    # Run benchmark with detailed evaluation
+    logging.info("Running continual learning benchmark...")
+    start_time = time.time()
     
-    def instrumented_create():
-        nonlocal create_events, step_counter
-        
-        # Call original method
-        original_create()
-        
-        # Log creation
-        if create_events and create_events[-1][0] == step_counter:
-            create_events[-1] = (step_counter, create_events[-1][1] + 1)
-        else:
-            create_events.append((step_counter, 1))
-        
-        logging.info(f"[Step {step_counter}] Created new expert (total: {len(model.experts)})")
-        
-        # Update expert lifecycle log
-        expert_counts.append((step_counter, len(model.experts)))
+    results = benchmark.run_benchmark(
+        models=models,
+        optimizers=optimizers,
+        epochs_per_task=3,
+        batch_size=64,
+        detailed_eval=True
+    )
     
-    # Replace create method
-    model._create_new_expert = instrumented_create
+    elapsed_time = time.time() - start_time
+    logging.info(f"Benchmark completed in {elapsed_time:.2f} seconds")
     
-    # Initial expert count
-    expert_counts.append((0, len(model.experts)))
+    # Generate visualizations from benchmark results
+    generate_benchmark_visualizations(models, results)
     
-    # Maximum training steps
-    total_steps = sum(end - start for start, end in task_schedule.values())
-    logging.info(f"Training for {total_steps} steps across {len(task_schedule)} tasks")
+    # Track expert evolution for MORPH (throughout training)
+    track_expert_evolution(morph_model, num_tasks)
+
+def track_expert_evolution(model, num_tasks):
+    """
+    Track and visualize the evolution of experts during training.
     
-    # Training loop
-    model.train()
-    running_loss = 0.0
-    correct = 0
-    total = 0
+    Args:
+        model: MORPH model
+        num_tasks: Number of tasks trained on
+    """
+    # Visualize expert knowledge graph
+    for task_id in range(num_tasks):
+        visualize_knowledge_graph(
+            model,
+            output_path=f"results/continual_learning/knowledge_graph_task_{task_id}.png",
+            highlight_dormant=True,
+            highlight_similar=True,
+            highlight_specialization=True
+        )
     
-    # Create infinite data iterator
-    data_iterator = iter(dataloader)
-    
-    # Evaluate all tasks at the start
-    initial_task_accuracies = evaluate_forgetting(model, task_datasets, device)
-    task_accuracies_history.append((0, initial_task_accuracies))
-    
-    # Main training loop
-    for step in range(1, total_steps + 1):
-        # Get next batch, reinitialize iterator if needed
-        try:
-            data, target, task_id = next(data_iterator)
-        except StopIteration:
-            data_iterator = iter(dataloader)
-            data, target, task_id = next(data_iterator)
-        
-        # Update active task if changed
-        active_task = task_id[0].item()  # All items in batch have same task_id
-        if active_task != current_active_task:
-            logging.info(f"[Step {step}] Switching to task {active_task}")
-            current_active_task = active_task
-            active_task_history.append((step, active_task))
-            
-            # Update dataset's current step to ensure correct task is active
-            continual_dataset.set_step(step)
-        
-        # Move data to device
-        data, target = data.to(device), target.to(device)
-        
-        # Flatten images for MLP-based model
-        data = data.view(data.size(0), -1)
-        
-        # Zero gradients
-        optimizer.zero_grad()
-        
-        # Forward pass with training=True to enable expert creation
-        output = model(data, training=True)
-        loss = criterion(output, target)
-        
-        # Backward pass and optimize
-        loss.backward()
-        optimizer.step()
-        
-        # Track statistics
-        running_loss += loss.item()
-        _, predicted = output.max(1)
-        total += target.size(0)
-        correct += predicted.eq(target).sum().item()
-        
-        # Update step counter (used by instrumented sleep and create methods)
-        step_counter = step
-        
-        # Print progress every 100 steps
-        if step % 100 == 0:
-            accuracy = 100. * correct / total
-            logging.info(f'Step: {step}/{total_steps} '
-                  f'Task: {active_task} '
-                  f'Loss: {running_loss/100:.6f} '
-                  f'Acc: {accuracy:.2f}% '
-                  f'Experts: {len(model.experts)}')
-            
-            running_loss = 0.0
-            correct = 0
-            total = 0
-        
-        # Periodically evaluate all tasks for catastrophic forgetting assessment
-        if step % 500 == 0 or step == total_steps:
-            # Evaluate all tasks
-            task_accuracies = evaluate_forgetting(model, task_datasets, device)
-            task_accuracies_history.append((step, task_accuracies))
-            
-            # Log results
-            logging.info(f"[Step {step}] Task accuracies:")
-            for task_id, acc in task_accuracies.items():
-                logging.info(f"  Task {task_id}: {acc:.2f}%")
-        
-        # Update expert count log
-        if step % 100 == 0:
-            expert_counts.append((step, len(model.experts)))
-            
-        # Visualize knowledge graph periodically
-        if step % 1000 == 0 or step == total_steps:
-            visualize_knowledge_graph(
-                model,
-                output_path=f"results/continual/knowledge_graph_step_{step}.png"
-            )
-    
-    # Final evaluation of all tasks
-    final_task_accuracies = evaluate_forgetting(model, task_datasets, device)
-    logging.info("Final task accuracies:")
-    for task_id, acc in final_task_accuracies.items():
-        logging.info(f"Task {task_id}: {acc:.2f}%")
-    
-    # Plot expert lifecycle
-    visualize_expert_lifecycle(
-        expert_counts=expert_counts,
-        creation_events=create_events,
-        merge_events=merge_events,
-        sleep_events=sleep_events,
-        output_path="results/continual/expert_lifecycle.png"
+    # Visualize expert activation patterns
+    plot_expert_activations(
+        model,
+        n_steps=model.step_count,
+        output_path="results/continual_learning/expert_activations.png"
     )
     
     # Visualize sleep metrics
     visualize_sleep_metrics(
-        model=model,
-        sleep_events=sleep_events,
-        output_path="results/continual/sleep_metrics.png"
+        model,
+        output_path="results/continual_learning/sleep_metrics.png"
     )
     
-    # Plot task performance over time
-    visualize_task_performance(
-        task_accuracies_history=task_accuracies_history,
-        output_path="results/continual/task_performance.png"
-    )
+    # If we had tracked expert metrics over time, we would visualize specialization
+    # In a real implementation, we would collect this data during training
+    expert_history = []
     
-    # Plot expert activations
-    plot_expert_activations(
-        model=model,
-        n_steps=total_steps,
-        output_path="results/continual/expert_activations.png"
-    )
-    
-    # Visualize final knowledge graph
-    visualize_knowledge_graph(
-        model=model,
-        output_path="results/continual/final_knowledge_graph.png"
-    )
-    
-    # Create a custom visualization that shows task transitions and expert creation
-    plt.figure(figsize=(14, 6))
-    
-    # Plot expert count
-    steps, counts = zip(*expert_counts)
-    plt.plot(steps, counts, 'b-', linewidth=2, label='Number of Experts')
-    
-    # Shade regions for different tasks
-    colors = plt.cm.rainbow(np.linspace(0, 1, len(task_schedule)))
-    
-    for i, (task_id, (start, end)) in enumerate(sorted(task_schedule.items())):
-        plt.axvspan(start, end, alpha=0.2, color=colors[i], label=f'Task {task_id} active')
-    
-    # Mark expert creations
-    if create_events:
-        create_steps, create_counts = zip(*create_events)
-        plt.scatter(create_steps, [counts[steps.index(s)] if s in steps else counts[-1] for s in create_steps],
-                  color='green', marker='^', s=100, label='Expert Creation')
-    
-    # Mark sleep events
-    if sleep_events:
-        sleep_steps = [event[0] for event in sleep_events]
-        plt.scatter(sleep_steps, [counts[steps.index(s)] if s in steps else counts[-1] for s in sleep_steps],
-                  color='purple', marker='*', s=120, label='Sleep Cycle')
-    
-    plt.xlabel('Training Step')
-    plt.ylabel('Number of Experts')
-    plt.title('Expert Dynamics During Continual Learning Tasks')
-    plt.grid(True, alpha=0.3)
-    plt.legend(loc='upper left')
-    
-    plt.tight_layout()
-    plt.savefig("results/continual/task_expert_dynamics.png", dpi=300, bbox_inches='tight')
-    
-    # Save the model
-    torch.save(model.state_dict(), "results/continual/morph_continual_model.pt")
-    logging.info("Model saved to results/continual/morph_continual_model.pt")
-    
-    # Create summary report
-    with open("results/continual/continual_learning_summary.txt", "w") as f:
-        f.write("MORPH Continual Learning Summary\n")
-        f.write("===============================\n\n")
-        f.write(f"Total tasks: {len(task_schedule)}\n")
-        f.write(f"Initial experts: {config.num_initial_experts}\n")
-        f.write(f"Final experts: {len(model.experts)}\n\n")
+    # Extract current expert metrics as a sample point
+    if hasattr(model, 'get_expert_metrics'):
+        current_metrics = model.get_expert_metrics()
+        expert_history.append((model.step_count, current_metrics))
         
-        f.write("Task accuracy summary:\n")
-        for task_id, acc in final_task_accuracies.items():
-            f.write(f"  Task {task_id}: {acc:.2f}%\n")
-        
-        f.write("\nExpert statistics:\n")
-        f.write(f"  Experts created: {sum(count for _, count in create_events)}\n")
-        f.write(f"  Sleep cycles: {model.sleep_cycles_completed}\n")
-        
-        # Calculate catastrophic forgetting metrics
-        if len(task_accuracies_history) >= 2:
-            first_accs = task_accuracies_history[0][1]
-            forgetting = {}
-            
-            for task_id in first_accs:
-                if task_id in final_task_accuracies:
-                    forgetting[task_id] = first_accs[task_id] - final_task_accuracies[task_id]
-            
-            f.write("\nCatastrophic forgetting analysis:\n")
-            for task_id, forget_amount in forgetting.items():
-                f.write(f"  Task {task_id}: {forget_amount:.2f}% accuracy drop\n")
-            
-            # Average forgetting
-            if forgetting:
-                avg_forgetting = sum(forgetting.values()) / len(forgetting)
-                f.write(f"\nAverage accuracy drop: {avg_forgetting:.2f}%\n")
-    
-    logging.info("Continual learning experiment completed. Results saved to results/continual/")
+        visualize_expert_specialization_over_time(
+            model,
+            expert_history=expert_history,
+            output_path="results/continual_learning/expert_specialization.png"
+        )
 
+def generate_benchmark_visualizations(models, results):
+    """
+    Generate visualizations for benchmark results.
+    
+    Args:
+        models: Dictionary of models used in benchmark
+        results: Benchmark results dictionary
+    """
+    os.makedirs("results/continual_learning/benchmark", exist_ok=True)
+    
+    # 1. Plot final accuracy comparison
+    plt.figure(figsize=(10, 6))
+    
+    model_names = list(results['final_accuracies'].keys())
+    task_ids = sorted(list(results['final_accuracies'][model_names[0]].keys()))
+    
+    x = np.arange(len(task_ids))
+    width = 0.25
+    
+    for i, model_name in enumerate(model_names):
+        accuracies = []
+        for task_id in task_ids:
+            acc = results['final_accuracies'][model_name][task_id]
+            # Handle both simple and detailed metrics
+            if isinstance(acc, dict):
+                acc = acc['accuracy']
+            accuracies.append(acc)
+        
+        plt.bar(x + (i - 1) * width, accuracies, width, label=model_name)
+    
+    plt.xlabel('Task ID')
+    plt.ylabel('Final Accuracy (%)')
+    plt.title('Model Performance Comparison Across Tasks')
+    plt.xticks(x, [f"Task {i}" for i in task_ids])
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig("results/continual_learning/benchmark/final_accuracy.png", dpi=300)
+    plt.close()
+    
+    # 2. Plot forgetting metrics
+    plt.figure(figsize=(10, 6))
+    
+    for model_name in model_names:
+        forgetting = results['forgetting_metrics'][model_name]
+        task_ids = sorted(list(forgetting.keys()))
+        forgetting_values = [forgetting[task_id] for task_id in task_ids]
+        
+        plt.plot(task_ids, forgetting_values, 'o-', linewidth=2, label=model_name)
+    
+    plt.xlabel('Task ID')
+    plt.ylabel('Forgetting (%)')
+    plt.title('Catastrophic Forgetting by Task and Model')
+    plt.xticks(task_ids)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.savefig("results/continual_learning/benchmark/forgetting.png", dpi=300)
+    plt.close()
+    
+    # 3. Plot knowledge retention
+    plt.figure(figsize=(10, 6))
+    
+    for model_name in model_names:
+        retention = results['retention_metrics'][model_name]
+        task_ids = sorted(list(retention.keys()))
+        retention_values = [retention[task_id] * 100 for task_id in task_ids]
+        
+        plt.plot(task_ids, retention_values, 'o-', linewidth=2, label=model_name)
+    
+    plt.xlabel('Task ID')
+    plt.ylabel('Retention (%)')
+    plt.title('Knowledge Retention by Task and Model')
+    plt.xticks(task_ids)
+    plt.legend()
+    plt.ylim(0, 110)
+    plt.grid(True, alpha=0.3)
+    plt.savefig("results/continual_learning/benchmark/retention.png", dpi=300)
+    plt.close()
+    
+    # 4. Plot average forgetting comparison
+    plt.figure(figsize=(8, 6))
+    
+    avg_forgetting = results['avg_forgetting']
+    
+    plt.bar(range(len(model_names)), 
+           [avg_forgetting[name] for name in model_names],
+           color=['blue', 'orange', 'green'])
+    
+    plt.xlabel('Model')
+    plt.ylabel('Average Forgetting (%)')
+    plt.title('Average Catastrophic Forgetting')
+    plt.xticks(range(len(model_names)), model_names)
+    plt.grid(True, alpha=0.3)
+    plt.savefig("results/continual_learning/benchmark/avg_forgetting.png", dpi=300)
+    plt.close()
+    
+    # 5. Plot expert metrics for MORPH
+    if 'expert_metrics' in results and 'MORPH' in results['expert_metrics']:
+        expert_metrics = results['expert_metrics']['MORPH']
+        
+        # Expert utilization across tasks
+        plt.figure(figsize=(12, 8))
+        
+        # Plot expert usage per task
+        task_ids = sorted(list(expert_metrics['expert_utilization'].keys()))
+        
+        for task_id in task_ids:
+            utilization = expert_metrics['expert_utilization'][task_id]
+            expert_ids = sorted(list(utilization.keys()))
+            activations = [utilization[expert_id] for expert_id in expert_ids]
+            
+            plt.plot(expert_ids, activations, 'o-', linewidth=2, 
+                   label=f"Task {task_id}")
+        
+        plt.xlabel('Expert ID')
+        plt.ylabel('Activation Count')
+        plt.title('Expert Utilization by Task')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig("results/continual_learning/benchmark/expert_utilization.png", dpi=300)
+        plt.close()
+        
+        # Expert specialization
+        plt.figure(figsize=(12, 8))
+        
+        for task_id in task_ids:
+            specialization = expert_metrics['expert_specialization'][task_id]
+            expert_ids = sorted(list(specialization.keys()))
+            spec_scores = [specialization[expert_id] for expert_id in expert_ids]
+            
+            plt.plot(expert_ids, spec_scores, 'o-', linewidth=2, 
+                   label=f"Task {task_id}")
+        
+        plt.xlabel('Expert ID')
+        plt.ylabel('Specialization Score')
+        plt.title('Expert Specialization by Task')
+        plt.grid(True, alpha=0.3)
+        plt.legend()
+        plt.savefig("results/continual_learning/benchmark/expert_specialization.png", dpi=300)
+        plt.close()
+    
+    # 6. Plot task overlap matrix (how similar the tasks are)
+    if 'expert_metrics' in results and 'MORPH' in results['expert_metrics']:
+        expert_metrics = results['expert_metrics']['MORPH']
+        
+        if 'task_expert_overlap' in expert_metrics:
+            task_overlap = expert_metrics['task_expert_overlap']
+            
+            # Create matrix representation of task overlaps
+            task_ids = sorted(list(set([t[0] for t in task_overlap.keys()] + 
+                                    [t[1] for t in task_overlap.keys()])))
+            num_tasks = len(task_ids)
+            overlap_matrix = np.zeros((num_tasks, num_tasks))
+            
+            # Fill diagonal with 1.0 (perfect overlap with self)
+            for i in range(num_tasks):
+                overlap_matrix[i, i] = 1.0
+            
+            # Fill rest of matrix
+            for (task_i, task_j), overlap in task_overlap.items():
+                i = task_ids.index(task_i)
+                j = task_ids.index(task_j)
+                overlap_matrix[i, j] = overlap
+                overlap_matrix[j, i] = overlap  # Mirror
+            
+            # Plot heatmap
+            plt.figure(figsize=(8, 6))
+            plt.imshow(overlap_matrix, cmap='viridis', vmin=0, vmax=1)
+            plt.colorbar(label='Expert Overlap')
+            plt.title('Task Similarity Based on Expert Utilization')
+            plt.xlabel('Task ID')
+            plt.ylabel('Task ID')
+            plt.xticks(range(num_tasks), task_ids)
+            plt.yticks(range(num_tasks), task_ids)
+            
+            # Add text annotations
+            for i in range(num_tasks):
+                for j in range(num_tasks):
+                    plt.text(j, i, f"{overlap_matrix[i, j]:.2f}", 
+                           ha='center', va='center', 
+                           color='white' if overlap_matrix[i, j] < 0.7 else 'black')
+            
+            plt.savefig("results/continual_learning/benchmark/task_overlap.png", dpi=300)
+            plt.close()
+    
+    # 7. Plot concept drift metrics if available
+    if 'drift_metrics' in results and results['drift_metrics']:
+        visualize_concept_drift_adaptation(
+            results['drift_metrics'],
+            {model_name: results['final_accuracies'][model_name] for model_name in model_names},
+            output_path="results/continual_learning/benchmark/concept_drift.png"
+        )
 
 if __name__ == "__main__":
     main()
