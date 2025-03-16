@@ -69,7 +69,7 @@ class Expert(nn.Module):
             Expert output
         """
         if update_stats:
-            self.activation_count += 1
+            self.activation_count += x.size(0)  # Count each sample in the batch
             
             # Update input feature statistics if not in sleep mode
             if x.size(0) <= 32:  # Don't track large batch statistics for memory efficiency
@@ -77,12 +77,33 @@ class Expert(nn.Module):
                     # Compute mean input feature vector (simple summary)
                     mean_features = torch.mean(x, dim=0).detach().cpu()
                     
-                    # Update running centroid
+                    # Update running centroid with stronger update for better specialization
                     if self.input_feature_centroid is None:
                         self.input_feature_centroid = mean_features
                     else:
-                        # Exponential moving average update
-                        self.input_feature_centroid = 0.95 * self.input_feature_centroid + 0.05 * mean_features
+                        # Exponential moving average update with faster adaptation
+                        # Increased from 0.05 to 0.1 for faster specialization
+                        self.input_feature_centroid = 0.9 * self.input_feature_centroid + 0.1 * mean_features
+                    
+                    # Update specialization score based on input consistency
+                    if hasattr(self, 'last_inputs') and self.last_inputs is not None:
+                        # Calculate similarity between current and previous inputs
+                        similarity = F.cosine_similarity(
+                            mean_features.unsqueeze(0),
+                            self.last_inputs.unsqueeze(0)
+                        )[0].item()
+                        
+                        # Higher similarity means more specialized (consistent inputs)
+                        # Update specialization score with a small step
+                        if similarity > 0.7:  # High similarity threshold
+                            # Increase specialization score (more specialized)
+                            self.specialization_score = min(1.0, self.specialization_score + 0.01)
+                        elif similarity < 0.3:  # Low similarity threshold
+                            # Decrease specialization score (more general)
+                            self.specialization_score = max(0.0, self.specialization_score - 0.005)
+                    
+                    # Store current inputs for next comparison
+                    self.last_inputs = mean_features
         
         return self.network(x)
     

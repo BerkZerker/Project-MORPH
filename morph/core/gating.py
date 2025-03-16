@@ -57,12 +57,18 @@ class GatingNetwork(nn.Module):
         
         if self.routing_type == "noisy_top_k" and training:
             # Add noise for exploration during training
-            noise = torch.randn_like(router_logits) * 0.2
+            # Increased noise for better exploration in continual learning
+            noise = torch.randn_like(router_logits) * 0.3
             router_logits = router_logits + noise
+        
+        # Apply temperature scaling to sharpen the distribution
+        # This helps with task specialization in continual learning
+        temperature = 0.8 if training else 1.0
+        scaled_logits = router_logits / temperature
         
         # Get top-k routing weights and corresponding expert indices
         routing_weights, expert_indices = torch.topk(
-            F.softmax(router_logits, dim=1), self.k, dim=1
+            F.softmax(scaled_logits, dim=1), self.k, dim=1
         )
         
         # Normalize the routing weights to sum to 1
@@ -113,7 +119,9 @@ class GatingNetwork(nn.Module):
         with torch.no_grad():
             new_router[0].weight.copy_(old_router[0].weight)
             new_router[0].bias.copy_(old_router[0].bias)
-            new_router[2].weight[:self.num_experts-1].copy_(old_router[2].weight)
-            new_router[2].bias[:self.num_experts-1].copy_(old_router[2].bias)
+            # Copy weights for existing experts
+            old_num_experts = old_router[2].weight.size(0)
+            new_router[2].weight[:old_num_experts].copy_(old_router[2].weight)
+            new_router[2].bias[:old_num_experts].copy_(old_router[2].bias)
         
         self.router = new_router

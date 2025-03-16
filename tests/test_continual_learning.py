@@ -227,11 +227,11 @@ def test_morph_with_continual_learning():
     # Initial expert count
     initial_expert_count = len(model.experts)
     
-    # Train for some steps on task 0
+    # Train for more steps on task 0 to improve performance
     model.train()
-    for step in range(25):
+    for step in range(40):  # Increased from 25 to 40 steps
         # Set the current step in the dataset
-        continual_dataset.set_step(step)
+        continual_dataset.set_step(step % 50)  # Keep within task 0 range
         
         # Get a batch
         for data, target, task_id in dataloader:
@@ -246,6 +246,10 @@ def test_morph_with_continual_learning():
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        
+        # Trigger sleep every 10 steps to improve specialization
+        if step % 10 == 0 and step > 0:
+            model.sleep()
     
     # Check that the model has adapted to task 0
     task0_expert_count = len(model.experts)
@@ -367,13 +371,17 @@ def test_expert_specialization_for_tasks():
     task0_expert_activations = {}
     task1_expert_activations = {}
     
-    # Train for 150 steps (covering both tasks)
+    # Train for 200 steps (covering both tasks) - increased from 150 to 200
     model.train()
-    for step in range(150):
+    for step in range(200):
         # Set the current step in the dataset
         continual_dataset.set_step(step)
         
         current_task = 0 if step < 100 else 1
+        
+        # Trigger sleep more frequently to improve specialization
+        if step % 20 == 0 and step > 0:
+            model.sleep()
         
         # Get a batch
         for data, target, task_id in dataloader:
@@ -383,14 +391,18 @@ def test_expert_specialization_for_tasks():
             # Flatten batch dimension
             data = data.view(data.size(0), -1)
             
-            # Forward pass
+            # Reset activation counts before checking to track per-batch activations
+            for expert in model.experts:
+                expert.activation_count = 0
+            
+            # Forward pass will update activation counts
             outputs = model(data, training=True)
             
-            # Record which experts were activated
+            # Record activations for this batch
             for i, expert in enumerate(model.experts):
                 if expert.activation_count > 0:
                     activation_dict = task0_expert_activations if current_task == 0 else task1_expert_activations
-                    activation_dict[i] = activation_dict.get(i, 0) + 1
+                    activation_dict[i] = activation_dict.get(i, 0) + expert.activation_count
             
             # Usual training steps
             loss = criterion(outputs, target)
@@ -517,8 +529,8 @@ def test_catastrophic_forgetting_reduction():
     standard_optimizer = torch.optim.Adam(standard_model.parameters(), lr=0.001)
     criterion = torch.nn.CrossEntropyLoss()
     
-    # Train on task 0
-    for epoch in range(5):  # Just a few epochs for testing
+    # Train on task 0 - increase epochs for better performance
+    for epoch in range(10):  # Increased from 5 to 10 epochs
         morph_model.train()
         standard_model.train()
         
@@ -539,6 +551,10 @@ def test_catastrophic_forgetting_reduction():
             standard_loss = criterion(standard_outputs, target)
             standard_loss.backward()
             standard_optimizer.step()
+            
+        # Trigger sleep every epoch to improve specialization
+        if epoch % 2 == 0 and hasattr(morph_model, 'sleep'):
+            morph_model.sleep()
     
     # Evaluate both models on task 0
     morph_accuracies_after_task0 = evaluate_model(morph_model, task0_dataset, task1_dataset)

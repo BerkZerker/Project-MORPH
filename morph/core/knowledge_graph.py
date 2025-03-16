@@ -74,8 +74,9 @@ class KnowledgeGraph:
             weight: Edge weight (0.0-1.0)
             relation_type: Type of relationship
         """
-        if relation_type not in self.edge_types and relation_type is not None:
+        if relation_type not in self.edge_types:
             logging.warning(f"Unknown relation type: {relation_type}")
+            relation_type = self.edge_types[0] if self.edge_types else 'similarity'
         
         self.graph.add_edge(
             expert1_id,

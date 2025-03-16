@@ -108,11 +108,11 @@ def test_expert_specialization_analysis():
     assert 0.3 < metrics[2]['specialization_score'] < 0.7
     
     # Check that knowledge graph node attributes were updated
-    assert 'specialization_score' in model.knowledge_graph.nodes[0]
-    assert 'adaptation_rate' in model.knowledge_graph.nodes[0]
+    assert 'specialization_score' in model.knowledge_graph.graph.nodes[0]
+    assert 'adaptation_rate' in model.knowledge_graph.graph.nodes[0]
     
     # More specialized experts should have lower adaptation rates
-    assert model.knowledge_graph.nodes[0]['adaptation_rate'] > model.knowledge_graph.nodes[1]['adaptation_rate']
+    assert model.knowledge_graph.graph.nodes[0]['adaptation_rate'] > model.knowledge_graph.graph.nodes[1]['adaptation_rate']
 
 
 def test_adaptive_sleep_scheduling():
@@ -151,13 +151,14 @@ def test_adaptive_sleep_scheduling():
         expert = model.experts[0].clone()
         expert.expert_id = len(model.experts)
         model.experts.append(expert)
-        model.knowledge_graph.add_node(
+        model.knowledge_graph.add_expert(
             expert.expert_id,
-            activation_count=0,
-            last_activated=model.step_count,
             specialization_score=0.5,
             adaptation_rate=1.0
         )
+        # Update activation count and last_activated
+        model.knowledge_graph.graph.nodes[expert.expert_id]['activation_count'] = 0
+        model.knowledge_graph.graph.nodes[expert.expert_id]['last_activated'] = model.step_count
     
     # Update sleep schedule again
     model._update_sleep_schedule()
@@ -210,17 +211,17 @@ def test_expert_reorganization():
     assert result is True
     
     # Check that a specialization edge was created between experts 0 and 1
-    assert model.knowledge_graph.has_edge(0, 1)
-    edge_data = model.knowledge_graph.get_edge_data(0, 1)
+    assert model.knowledge_graph.graph.has_edge(0, 1)
+    edge_data = model.knowledge_graph.graph.get_edge_data(0, 1)
     assert 'relation_type' in edge_data
     
     # Expert 2 should not have a specialization edge with others (no overlap)
-    if model.knowledge_graph.has_edge(0, 2):
-        edge_data = model.knowledge_graph.get_edge_data(0, 2)
+    if model.knowledge_graph.graph.has_edge(0, 2):
+        edge_data = model.knowledge_graph.graph.get_edge_data(0, 2)
         assert edge_data.get('relation_type', '') != 'specialization_split'
         
-    if model.knowledge_graph.has_edge(1, 2):
-        edge_data = model.knowledge_graph.get_edge_data(1, 2)
+    if model.knowledge_graph.graph.has_edge(1, 2):
+        edge_data = model.knowledge_graph.graph.get_edge_data(1, 2)
         assert edge_data.get('relation_type', '') != 'specialization_split'
 
 
@@ -272,8 +273,8 @@ def test_full_sleep_cycle():
     
     # Initialize knowledge graph with some data
     for i in range(len(model.experts)):
-        model.knowledge_graph.nodes[i]['activation_count'] = 50 + i * 10
-        model.knowledge_graph.nodes[i]['last_activated'] = model.step_count - i * 10
+        model.knowledge_graph.graph.nodes[i]['activation_count'] = 50 + i * 10
+        model.knowledge_graph.graph.nodes[i]['last_activated'] = model.step_count - i * 10
     
     # Add similar weight parameters to first two experts to trigger merging
     with torch.no_grad():
@@ -288,6 +289,6 @@ def test_full_sleep_cycle():
     assert model.next_sleep_step > model.step_count
     
     # Verify that expert analysis was performed
-    for node in model.knowledge_graph.nodes:
-        assert 'specialization_score' in model.knowledge_graph.nodes[node]
-        assert 'adaptation_rate' in model.knowledge_graph.nodes[node]
+    for node in model.knowledge_graph.graph.nodes:
+        assert 'specialization_score' in model.knowledge_graph.graph.nodes[node]
+        assert 'adaptation_rate' in model.knowledge_graph.graph.nodes[node]

@@ -64,4 +64,5 @@ class MorphConfig:
                 "specialization",    # For experts specialized in a domain
                 "dependency",        # For experts with input/output dependencies
                 "composition",       # For experts that are compositional
+                "specialization_split", # For experts that split specialization
             ]
