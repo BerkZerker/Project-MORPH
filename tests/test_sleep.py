@@ -3,8 +3,10 @@ import pytest
 import numpy as np
 from morph.config import MorphConfig
 from morph.core.model import MorphModel
+from morph.utils.testing.decorators import visualize_test, capture_test_state
 
 
+@visualize_test
 def test_sleep_cycle_initialization():
     """Test that sleep cycle metrics are properly initialized."""
     config = MorphConfig(
@@ -30,6 +32,7 @@ def test_sleep_cycle_initialization():
     assert model.adaptive_sleep_frequency == config.sleep_cycle_frequency
     
 
+@visualize_test
 def test_memory_replay():
     """Test that memory replay works as expected."""
     config = MorphConfig(
@@ -71,14 +74,16 @@ def test_memory_replay():
     # Verify activation buffer has been populated
     assert len(model.activation_buffer) == 20
     
-    # Perform memory replay
-    result = model._perform_memory_replay()
+    # Perform memory replay with visualization
+    with capture_test_state(model, "Memory Replay"):
+        result = model._perform_memory_replay()
     
     # Verify memory replay worked
     assert result is True
     assert len(model.activation_buffer) == 0  # Buffer should be cleared
 
 
+@visualize_test
 def test_expert_specialization_analysis():
     """Test expert specialization analysis."""
     config = MorphConfig(
@@ -103,8 +108,9 @@ def test_expert_specialization_analysis():
     # Expert 2: Moderately specialized
     model.expert_input_distributions[2] = {f"feature_{i}": 10 for i in range(5)}
     
-    # Analyze specialization
-    metrics = model._analyze_expert_specialization()
+    # Analyze specialization with visualization
+    with capture_test_state(model, "Expert Specialization Analysis"):
+        metrics = model._analyze_expert_specialization()
     
     # Check the results
     assert 0 in metrics and 1 in metrics and 2 in metrics
@@ -126,6 +132,7 @@ def test_expert_specialization_analysis():
     assert model.knowledge_graph.graph.nodes[0]['adaptation_rate'] > model.knowledge_graph.graph.nodes[1]['adaptation_rate']
 
 
+@visualize_test
 def test_adaptive_sleep_scheduling():
     """Test adaptive sleep scheduling."""
     config = MorphConfig(
@@ -151,8 +158,9 @@ def test_adaptive_sleep_scheduling():
     initial_frequency = model.adaptive_sleep_frequency
     initial_next_step = model.next_sleep_step
     
-    # Update the sleep schedule
-    model._update_sleep_schedule()
+    # Update the sleep schedule with visualization
+    with capture_test_state(model, "Sleep Schedule Update"):
+        model._update_sleep_schedule()
     
     # Check that the sleep cycle counter was incremented
     assert model.sleep_cycles_completed == 1
@@ -174,8 +182,9 @@ def test_adaptive_sleep_scheduling():
         model.knowledge_graph.graph.nodes[expert.expert_id]['activation_count'] = 0
         model.knowledge_graph.graph.nodes[expert.expert_id]['last_activated'] = model.step_count
     
-    # Update sleep schedule again
-    model._update_sleep_schedule()
+    # Update sleep schedule again with visualization
+    with capture_test_state(model, "Sleep Schedule Update (After Expert Addition)"):
+        model._update_sleep_schedule()
     
     # With many experts, frequency should decrease (sleep more often)
     if len(model.experts) > config.num_initial_experts * 2:
@@ -186,6 +195,7 @@ def test_adaptive_sleep_scheduling():
     assert model.adaptive_sleep_frequency <= config.max_sleep_frequency
 
 
+@visualize_test
 def test_expert_reorganization():
     """Test expert reorganization based on activation patterns."""
     config = MorphConfig(
@@ -221,8 +231,9 @@ def test_expert_reorganization():
     model.expert_input_distributions[1] = expert1_features
     model.expert_input_distributions[2] = {f"feature_{i}": 1 for i in range(20, 70)}
     
-    # Perform reorganization
-    result = model._reorganize_experts(specialization_metrics)
+    # Perform reorganization with visualization
+    with capture_test_state(model, "Expert Reorganization"):
+        result = model._reorganize_experts(specialization_metrics)
     
     # Verify reorganization occurred
     assert result is True
@@ -242,6 +253,7 @@ def test_expert_reorganization():
         assert edge_data.get('relation_type', '') != 'specialization_split'
 
 
+@visualize_test
 def test_full_sleep_cycle():
     """Test a complete sleep cycle with all components."""
     config = MorphConfig(
@@ -303,8 +315,9 @@ def test_full_sleep_cycle():
         for p1, p2 in zip(model.experts[0].parameters(), model.experts[1].parameters()):
             p2.data = p1.data * 0.95 + torch.randn_like(p1.data) * 0.05
     
-    # Perform sleep cycle
-    model.sleep()
+    # Perform sleep cycle with visualization
+    with capture_test_state(model, "Full Sleep Cycle"):
+        model.sleep()
     
     # Check that sleep cycle was performed
     assert model.sleep_cycles_completed == 1

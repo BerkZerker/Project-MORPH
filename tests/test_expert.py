@@ -1,8 +1,10 @@
 import torch
 import pytest
 from morph.core.expert import Expert
+from morph.utils.testing.decorators import visualize_test, capture_test_state
 
 
+@visualize_test
 def test_expert_initialization():
     """Test that an expert initializes correctly."""
     expert = Expert(input_size=10, hidden_size=20, output_size=5)
@@ -19,6 +21,7 @@ def test_expert_initialization():
     assert expert.network[-1].out_features == 5
 
 
+@visualize_test
 def test_expert_forward():
     """Test that an expert forward pass works correctly."""
     expert = Expert(input_size=10, hidden_size=20, output_size=5)
@@ -26,8 +29,9 @@ def test_expert_forward():
     # Create a batch of inputs
     inputs = torch.randn(32, 10)
     
-    # Forward pass
-    outputs = expert(inputs)
+    # Forward pass with visualization
+    with capture_test_state(expert, "Expert Forward Pass"):
+        outputs = expert(inputs)
     
     # Check output shape
     assert outputs.shape == (32, 5)
@@ -36,13 +40,15 @@ def test_expert_forward():
     assert expert.activation_count == 1
 
 
+@visualize_test
 def test_expert_clone():
     """Test that an expert can be cloned correctly."""
     expert = Expert(input_size=10, hidden_size=20, output_size=5, num_layers=3)
     expert.expert_id = 42
     
-    # Clone the expert
-    cloned_expert = expert.clone()
+    # Clone the expert with visualization
+    with capture_test_state(expert, "Expert Cloning"):
+        cloned_expert = expert.clone()
     
     # Check structure is the same
     assert expert.network[0].in_features == cloned_expert.network[0].in_features
@@ -62,13 +68,15 @@ def test_expert_clone():
     assert cloned_expert.activation_count == 0
 
 
+@visualize_test
 def test_parameter_similarity():
     """Test parameter similarity calculation."""
     expert1 = Expert(input_size=10, hidden_size=20, output_size=5)
     expert2 = expert1.clone()  # Different random weights
     
     # With different weights, similarity should be low
-    similarity = expert1.get_parameter_similarity(expert2)
+    with capture_test_state(expert1, "Parameter Similarity Calculation"):
+        similarity = expert1.get_parameter_similarity(expert2)
     assert 0 <= similarity <= 1  # Should be a valid similarity score
     
     # Same expert should have perfect similarity

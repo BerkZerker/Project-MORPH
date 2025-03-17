@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MORPH Test Visualization Dashboard</title>
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header>
+        <h1>MORPH Test Visualization Dashboard</h1>
+        <div class="test-info">
+            <div id="current-test">No test running</div>
+            <div id="test-status">Idle</div>
+        </div>
+    </header>
+
+    <div class="progress-container">
+        <div class="progress-header">
+            <h2>Test Progress</h2>
+            <div class="time-info">
+                <div id="elapsed-time">Elapsed: 0s</div>
+                <div id="remaining-time">Remaining: 0s</div>
+            </div>
+        </div>
+        <div class="progress-bar-container">
+            <div id="progress-bar" class="progress-bar"></div>
+        </div>
+        <div class="progress-details">
+            <div id="step-info">Step: 0/0</div>
+            <div id="progress-percentage">0%</div>
+        </div>
+    </div>
+
+    <div class="visualization-grid">
+        <div class="visualization-card">
+            <h3>Knowledge Graph</h3>
+            <div class="visualization-content" id="knowledge-graph">
+                <div class="placeholder">Waiting for data...</div>
+            </div>
+            <div class="metrics">
+                <div class="metric">
+                    <span class="metric-label">Nodes:</span>
+                    <span class="metric-value" id="kg-nodes">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Edges:</span>
+                    <span class="metric-value" id="kg-edges">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="visualization-card">
+            <h3>Expert Activations</h3>
+            <div class="visualization-content" id="expert-activations">
+                <div class="placeholder">Waiting for data...</div>
+            </div>
+            <div class="metrics">
+                <div class="metric">
+                    <span class="metric-label">Experts:</span>
+                    <span class="metric-value" id="num-experts">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Max Activation:</span>
+                    <span class="metric-value" id="max-activation">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="visualization-card">
+            <h3>Model Metrics</h3>
+            <div class="visualization-content" id="model-metrics">
+                <div class="placeholder">Waiting for data...</div>
+            </div>
+            <div class="metrics">
+                <div class="metric">
+                    <span class="metric-label">Sleep Cycles:</span>
+                    <span class="metric-value" id="sleep-cycles">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Step Count:</span>
+                    <span class="metric-value" id="step-count">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="visualization-card">
+            <h3>Expert Specialization</h3>
+            <div class="visualization-content" id="expert-specialization">
+                <div class="placeholder">Waiting for data...</div>
+            </div>
+            <div class="metrics">
+                <div class="metric">
+                    <span class="metric-label">Experts:</span>
+                    <span class="metric-value" id="spec-experts">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Max Score:</span>
+                    <span class="metric-value" id="max-score">0</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="timeline-container">
+        <h2>Test Timeline</h2>
+        <div class="timeline" id="timeline">
+            <div class="timeline-placeholder">Test steps will appear here...</div>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

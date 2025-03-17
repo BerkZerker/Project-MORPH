@@ -3,8 +3,10 @@ import pytest
 import networkx as nx
 from morph.config import MorphConfig
 from morph.core.knowledge_graph import KnowledgeGraph
+from morph.utils.testing.decorators import visualize_test, capture_test_state
 
 
+@visualize_test
 def test_knowledge_graph_initialization():
     """Test that knowledge graph initializes correctly."""
     config = MorphConfig()
@@ -23,17 +25,19 @@ def test_knowledge_graph_initialization():
     assert isinstance(kg.concept_hierarchy, nx.DiGraph)
     
 
+@visualize_test
 def test_add_expert():
     """Test adding an expert to the knowledge graph."""
     config = MorphConfig()
     kg = KnowledgeGraph(config)
     
-    # Add an expert
-    kg.add_expert(
-        expert_id=0,
-        specialization_score=0.6,
-        adaptation_rate=0.8
-    )
+    # Add an expert with visualization
+    with capture_test_state(kg, "Add Expert"):
+        kg.add_expert(
+            expert_id=0,
+            specialization_score=0.6,
+            adaptation_rate=0.8
+        )
     
     # Check expert was added
     assert 0 in kg.graph.nodes
@@ -47,6 +51,7 @@ def test_add_expert():
     assert len(kg.expert_concepts[0]) == 0
 
 
+@visualize_test
 def test_add_edge():
     """Test adding edges between experts in the knowledge graph."""
     config = MorphConfig()
@@ -56,13 +61,14 @@ def test_add_edge():
     kg.add_expert(0)
     kg.add_expert(1)
     
-    # Add an edge between them
-    kg.add_edge(
-        expert1_id=0,
-        expert2_id=1,
-        weight=0.75,
-        relation_type='similarity'
-    )
+    # Add an edge between them with visualization
+    with capture_test_state(kg, "Add Edge"):
+        kg.add_edge(
+            expert1_id=0,
+            expert2_id=1,
+            weight=0.75,
+            relation_type='similarity'
+        )
     
     # Check edge was added
     assert kg.graph.has_edge(0, 1)
@@ -76,6 +82,7 @@ def test_add_edge():
     assert kg.graph.get_edge_data(0, 1)['relation_type'] in config.knowledge_relation_types
 
 
+@visualize_test
 def test_update_expert_activation():
     """Test updating expert activation information."""
     config = MorphConfig()
@@ -86,8 +93,9 @@ def test_update_expert_activation():
     assert kg.graph.nodes[0]['activation_count'] == 0
     assert kg.graph.nodes[0]['last_activated'] == 0
     
-    # Update activation
-    kg.update_expert_activation(0, step=42)
+    # Update activation with visualization
+    with capture_test_state(kg, "Update Expert Activation"):
+        kg.update_expert_activation(0, step=42)
     assert kg.graph.nodes[0]['activation_count'] == 1
     assert kg.graph.nodes[0]['last_activated'] == 42
     
@@ -100,6 +108,7 @@ def test_update_expert_activation():
     kg.update_expert_activation(999, step=1)  # Should not raise error
     
 
+@visualize_test
 def test_update_expert_specialization():
     """Test updating expert specialization and adaptation rate."""
     config = MorphConfig()
@@ -108,8 +117,9 @@ def test_update_expert_specialization():
     # Add an expert
     kg.add_expert(0, specialization_score=0.5, adaptation_rate=1.0)
     
-    # Update specialization
-    kg.update_expert_specialization(0, specialization_score=0.8)
+    # Update specialization with visualization
+    with capture_test_state(kg, "Update Expert Specialization"):
+        kg.update_expert_specialization(0, specialization_score=0.8)
     
     # Check specialization was updated
     assert kg.graph.nodes[0]['specialization_score'] == 0.8
@@ -119,14 +129,16 @@ def test_update_expert_specialization():
     assert kg.graph.nodes[0]['adaptation_rate'] < 1.0
     
 
+@visualize_test
 def test_add_concept():
     """Test adding concepts to the knowledge graph."""
     config = MorphConfig()
     kg = KnowledgeGraph(config)
     
-    # Add a concept
+    # Add a concept with visualization
     embedding = torch.randn(10)
-    kg.add_concept("concept1", embedding)
+    with capture_test_state(kg, "Add Concept"):
+        kg.add_concept("concept1", embedding)
     
     # Check concept was added
     assert "concept1" in kg.concept_embeddings
@@ -141,6 +153,7 @@ def test_add_concept():
     assert kg.concept_hierarchy.has_edge("concept1", "concept1.1")
 
 
+@visualize_test
 def test_link_expert_to_concept():
     """Test linking experts to concepts."""
     config = MorphConfig()
@@ -151,8 +164,9 @@ def test_link_expert_to_concept():
     embedding = torch.randn(10)
     kg.add_concept("concept1", embedding)
     
-    # Link expert to concept
-    kg.link_expert_to_concept(0, "concept1", strength=0.9)
+    # Link expert to concept with visualization
+    with capture_test_state(kg, "Link Expert to Concept"):
+        kg.link_expert_to_concept(0, "concept1", strength=0.9)
     
     # Check linking worked
     assert "concept1" in kg.expert_concepts[0]
@@ -161,6 +175,7 @@ def test_link_expert_to_concept():
     kg.link_expert_to_concept(0, "nonexistent", strength=0.5)  # Should not raise error
     
 
+@visualize_test
 def test_get_similar_experts():
     """Test finding similar experts in the knowledge graph."""
     config = MorphConfig()
@@ -176,8 +191,9 @@ def test_get_similar_experts():
     kg.add_edge(0, 3, weight=0.8, relation_type='similarity')
     kg.add_edge(0, 4, weight=0.5, relation_type='similarity')
     
-    # Find similar experts with high threshold
-    similar = kg.get_similar_experts(0, threshold=0.7)
+    # Find similar experts with high threshold and visualization
+    with capture_test_state(kg, "Get Similar Experts"):
+        similar = kg.get_similar_experts(0, threshold=0.7)
     
     # Should return experts 1 and 3
     assert len(similar) == 2
@@ -191,6 +207,7 @@ def test_get_similar_experts():
     assert kg.get_similar_experts(999) == []
 
 
+@visualize_test
 def test_decay_edges():
     """Test edge decay functionality."""
     config = MorphConfig(
@@ -207,8 +224,9 @@ def test_decay_edges():
     kg.add_edge(0, 1, weight=1.0)
     kg.add_edge(0, 2, weight=0.3)  # Just above min threshold
     
-    # Apply decay
-    kg.decay_edges()
+    # Apply decay with visualization
+    with capture_test_state(kg, "Decay Edges"):
+        kg.decay_edges()
     
     # First edge should be decayed but still exist
     assert kg.graph.has_edge(0, 1)
@@ -218,6 +236,7 @@ def test_decay_edges():
     assert not kg.graph.has_edge(0, 2)  # 0.3 * 0.5 = 0.15 < 0.2
     
 
+@visualize_test
 def test_prune_isolated_experts():
     """Test identifying isolated experts in the knowledge graph."""
     config = MorphConfig()
@@ -232,14 +251,16 @@ def test_prune_isolated_experts():
     kg.add_edge(1, 2, weight=0.6)
     # Expert 3 remains isolated
     
-    # Find isolated experts
-    isolated = kg.prune_isolated_experts()
+    # Find isolated experts with visualization
+    with capture_test_state(kg, "Prune Isolated Experts"):
+        isolated = kg.prune_isolated_experts()
     
     # Only expert 3 should be isolated
     assert len(isolated) == 1
     assert 3 in isolated
 
 
+@visualize_test
 def test_get_dormant_experts():
     """Test identifying dormant experts."""
     config = MorphConfig()
@@ -261,13 +282,14 @@ def test_get_dormant_experts():
     # Set expert 2 to have few activations (dormant due to both inactivity and few activations)
     kg.graph.nodes[2]['activation_count'] = 5
     
-    # Get dormant experts
+    # Get dormant experts with visualization
     current_step = 100
-    dormant = kg.get_dormant_experts(
-        current_step=current_step,
-        dormancy_threshold=50,  # Inactive for 50+ steps
-        min_activations=10      # Fewer than 10 activations
-    )
+    with capture_test_state(kg, "Get Dormant Experts"):
+        dormant = kg.get_dormant_experts(
+            current_step=current_step,
+            dormancy_threshold=50,  # Inactive for 50+ steps
+            min_activations=10      # Fewer than 10 activations
+        )
     
     # Experts 1 and 2 should be dormant (inactive + few activations)
     # Expert 0 has too many activations to be dormant
@@ -278,6 +300,7 @@ def test_get_dormant_experts():
     assert 0 not in dormant
     
 
+@visualize_test
 def test_merge_expert_connections():
     """Test merging expert connections when removing an expert."""
     config = MorphConfig()
@@ -293,8 +316,9 @@ def test_merge_expert_connections():
     kg.add_edge(0, 3, weight=0.9, relation_type='specialization')
     # No connection to expert 4
     
-    # Merge connections from expert 0 to experts 1 and 3
-    kg.merge_expert_connections(0, target_ids=[1, 3])
+    # Merge connections from expert 0 to experts 1 and 3 with visualization
+    with capture_test_state(kg, "Merge Expert Connections"):
+        kg.merge_expert_connections(0, target_ids=[1, 3])
     
     # Check that expert 0's connections were transferred
     # Expert 1 should now be connected to experts 2 and 3
@@ -315,6 +339,7 @@ def test_merge_expert_connections():
     kg.merge_expert_connections(999, [1, 3])  # Should not raise error
     
 
+@visualize_test
 def test_rebuild_graph():
     """Test rebuilding the knowledge graph after expert count changes."""
     config = MorphConfig()
@@ -334,8 +359,9 @@ def test_rebuild_graph():
     original_node_count = len(kg.graph.nodes)
     original_edge_count = len(kg.graph.edges)
     
-    # Rebuild with fewer experts (removing expert 3)
-    kg.rebuild_graph(expert_count=3)
+    # Rebuild with fewer experts (removing expert 3) with visualization
+    with capture_test_state(kg, "Rebuild Graph"):
+        kg.rebuild_graph(expert_count=3)
     
     # Check node count changed
     assert len(kg.graph.nodes) == 3

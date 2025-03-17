@@ -211,6 +211,7 @@ Current status:
 | Expert Reorganization | ✅ Complete | 100% |
 | Concept Drift Detection | ✅ Complete | 100% |
 | GPU Acceleration | ✅ Complete | 100% |
+| Test Visualizations | ✅ Complete | 100% |
 
 See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
 
@@ -254,6 +255,28 @@ See [examples/README_GPU.md](examples/README_GPU.md) for more details.
 - [API Reference](docs/api.md)
 - [Examples](examples/README.md)
 
+## Project Structure
+
+```
+morph/
+├── core/                  # Core model components
+│   ├── model.py           # Main MORPH model implementation
+│   ├── expert.py          # Expert module implementation
+│   ├── gating.py          # Gating network for routing
+│   ├── knowledge_graph.py # Expert relationship management
+│   ├── sleep.py           # Sleep cycle implementation  
+│   ├── expert_management/ # Expert lifecycle management
+│   ├── training/          # Training utilities
+│   ├── model_utils/       # Model utility functions
+│   └── sleep_management/  # Sleep cycle components
+├── utils/                 # Utility functions
+│   ├── benchmarks/        # Benchmarking utilities
+│   ├── visualization/     # Visualization tools
+│   ├── distributed/       # Distributed computing utilities
+│   ├── testing/           # Test visualization framework
+│   └── data.py            # Data handling utilities
+└── config.py              # Configuration utilities
+
 ## Development
 
 ### Build & Test Commands
@@ -267,6 +290,9 @@ python -m pytest tests/test_expert.py
 
 # Run a specific test
 python -m pytest tests/test_expert.py::test_expert_initialization
+
+# Run tests with visualizations (enabled by default)
+python -m pytest tests/test_sleep.py
 
 # Format code with Black
 python -m black morph/ tests/
@@ -282,6 +308,26 @@ python -m flake8 morph/ tests/
 ```
 
 See [CLAUDE.md](CLAUDE.md) for more detailed development guidelines.
+
+### Test Visualizations
+
+MORPH includes a comprehensive test visualization framework that helps you understand what's happening during test execution. The framework captures the state of models during tests and generates visual representations of:
+
+- Knowledge graph structure and changes
+- Expert activation patterns
+- Model metrics and state
+- Timeline of test execution steps
+
+Visualizations are enabled by default for all tests. After running tests, you can view the generated visualizations in the `test_visualizations` directory, and a summary HTML report in the `test_reports` directory.
+
+```bash
+# Run tests with visualizations
+python -m pytest tests/
+
+# View the generated HTML report (path will be shown in test output)
+```
+
+For more details, see [tests/README_VISUALIZATIONS.md](tests/README_VISUALIZATIONS.md).
 
 ## Visualization of the MORPH Approach
 
