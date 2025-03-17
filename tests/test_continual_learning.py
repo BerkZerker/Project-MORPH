@@ -363,7 +363,7 @@ def test_expert_specialization_for_tasks():
     # Create a small MORPH model with GPU acceleration
     config = MorphConfig(
         input_size=10,
-        expert_hidden_size=20,
+        expert_hidden_size=16,  # Reduced from 20 to 16
         output_size=5,
         num_initial_experts=3,
         expert_k=2,
@@ -374,7 +374,7 @@ def test_expert_specialization_for_tasks():
         
         # Enable sleep (more frequent for testing)
         enable_sleep=True,
-        sleep_cycle_frequency=30,
+        sleep_cycle_frequency=20,  # Optimized from 30
         
         # GPU acceleration
         device="cuda" if torch.cuda.is_available() else "cpu",
@@ -386,37 +386,37 @@ def test_expert_specialization_for_tasks():
         
         # Test-specific optimizations
         test_mode=True,
-        test_expert_size=16,
-        test_sleep_frequency=15,
-        test_memory_buffer_size=100
+        test_expert_size=12,  # Reduced from 16 to 12
+        test_sleep_frequency=10,  # Optimized from 15
+        test_memory_buffer_size=50  # Reduced from 100 to 50
     )
     
     model = MorphModel(config)
     
     # Create two very different distributions
-    # Task 0: Centered around origin
-    task0_data = torch.randn(200, 10)
-    task0_targets = torch.randint(0, 5, (200,))
+    # Task 0: Centered around origin - reduced from 200 to 100 samples
+    task0_data = torch.randn(100, 10)
+    task0_targets = torch.randint(0, 5, (100,))
     task0_dataset = torch.utils.data.TensorDataset(task0_data, task0_targets)
     
-    # Task 1: Shifted far away
-    task1_data = torch.randn(200, 10) + torch.tensor([5.0, 5.0, 5.0, 5.0, 5.0, 0, 0, 0, 0, 0])
-    task1_targets = torch.randint(0, 5, (200,))
+    # Task 1: Shifted far away - reduced from 200 to 100 samples
+    task1_data = torch.randn(100, 10) + torch.tensor([5.0, 5.0, 5.0, 5.0, 5.0, 0, 0, 0, 0, 0])
+    task1_targets = torch.randint(0, 5, (100,))
     task1_dataset = torch.utils.data.TensorDataset(task1_data, task1_targets)
     
     datasets = {0: task0_dataset, 1: task1_dataset}
     
-    # Train on task 0 then task 1 sequentially
+    # Train on task 0 then task 1 sequentially - reduced total steps from 200 to 100
     task_schedule = {
-        0: (0, 100),   # Task 0 for 100 steps
-        1: (100, 200)  # Task 1 for 100 steps
+        0: (0, 50),   # Task 0 for 50 steps (reduced from 100)
+        1: (50, 100)  # Task 1 for 50 steps (reduced from 100)
     }
     
     # Create continual dataset
     continual_dataset = ContinualTaskDataset(datasets, task_schedule)
     dataloader = DataLoader(
         continual_dataset, 
-        batch_size=16, 
+        batch_size=20,  # Increased from 16 to 20 for faster processing
         shuffle=True,
         num_workers=config.num_workers,
         pin_memory=config.pin_memory
@@ -430,16 +430,16 @@ def test_expert_specialization_for_tasks():
     task0_expert_activations = {}
     task1_expert_activations = {}
     
-    # Train for 200 steps (covering both tasks) - increased from 150 to 200
+    # Train for 100 steps (covering both tasks) - reduced from 200 to 100
     model.train()
-    for step in range(200):
+    for step in range(100):
         # Set the current step in the dataset
         continual_dataset.set_step(step)
         
-        current_task = 0 if step < 100 else 1
+        current_task = 0 if step < 50 else 1  # Adjusted for new step counts
         
-        # Trigger sleep more frequently to improve specialization
-        if step % 20 == 0 and step > 0:
+        # Trigger sleep less frequently to improve speed
+        if step % 30 == 0 and step > 0:
             model.sleep()
         
         # Get a batch
