@@ -8,9 +8,9 @@ features of the MORPH model.
 import torch
 import time
 import pytest
-from morph.core.model import MorphModel
-from morph.config import MorphConfig
-from morph.utils.testing.decorators import visualize_test, capture_test_state
+from src.core.model import MorphModel
+from src.config import MorphConfig
+from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
 @visualize_test(live=True)

@@ -1,14 +1,14 @@
-# MORPH Architecture
+# Architecture
 
 ## Overview
 
-MORPH (Mixture Of experts with Recursive Post-processing & Hierarchy) is an advanced neural network architecture that implements a dynamic Mixture of Experts (MoE) model with continuous learning capabilities. The system features adaptive expert creation, brain-inspired post-processing mechanisms, and a knowledge graph for intelligent routing.
+This framework implements an advanced neural network architecture that implements a dynamic Mixture of Experts (MoE) model with continuous learning capabilities. The system features adaptive expert creation, brain-inspired post-processing mechanisms, and a knowledge graph for intelligent routing.
 
 ![Architecture Diagram](images/architecture.png)
 
 ## Core Components
 
-### MorphModel
+### Model
 
 The main model class that orchestrates all components. It manages the flow of information between the gating network, experts, knowledge graph, and sleep module.
 
@@ -71,7 +71,7 @@ Features:
 
 ## Sleep Cycle
 
-The sleep cycle is a critical part of MORPH that handles knowledge consolidation:
+The sleep cycle is a critical part of the framework that handles knowledge consolidation:
 
 1. **Memory Replay**: Stored activations are replayed to fine-tune experts
 2. **Expert Analysis**: Expert specializations are analyzed and updated
@@ -82,7 +82,7 @@ The sleep cycle is a critical part of MORPH that handles knowledge consolidation
 
 ## Configuration
 
-MorphConfig provides configuration options for all aspects of the model:
+The Config class provides configuration options for all aspects of the model:
 
 - Expert count and architecture
 - Dynamic expert creation settings
@@ -92,7 +92,7 @@ MorphConfig provides configuration options for all aspects of the model:
 
 ## Design Patterns
 
-MORPH uses several key design patterns:
+The framework uses several key design patterns:
 
 1. **Modularity**: Components are decoupled with clear responsibilities
 2. **Dynamic Creation**: Experts are created at runtime based on need
@@ -104,7 +104,7 @@ MORPH uses several key design patterns:
 
 ### Continuous Learning
 
-MORPH is designed for continuous learning scenarios where data distributions change over time. The architecture prevents catastrophic forgetting through:
+The framework is designed for continuous learning scenarios where data distributions change over time. The architecture prevents catastrophic forgetting through:
 
 - Expert specialization
 - Selective updates

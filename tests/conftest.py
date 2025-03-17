@@ -10,9 +10,9 @@ import pytest
 import shutil
 from pathlib import Path
 
-from morph.utils.testing.visualizer import TestVisualizer, get_default_visualizer
-from morph.utils.testing.reporters import TestReporter
-from morph.utils.testing import live_server, progress_tracker
+from src.utils.testing.visualizer import TestVisualizer, get_default_visualizer
+from src.utils.testing.reporters import TestReporter
+from src.utils.testing import live_server, progress_tracker
 
 
 # Add command line option to disable live visualizations

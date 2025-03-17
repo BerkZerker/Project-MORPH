@@ -11,14 +11,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Add parent directory to path to import morph
+# Add parent directory to path to import from src
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from morph.config import MorphConfig
-from morph.core.model import MorphModel
-from morph.utils.data import get_mnist_dataloaders
-from morph.utils.visualization import visualize_knowledge_graph, plot_expert_activations
+from src.config import Config
+from src.core.model import Model
+from src.data.data import get_mnist_dataloaders
+from src.visualization.visualization import visualize_knowledge_graph, plot_expert_activations
 
 
 def train(model, train_loader, optimizer, criterion, device, epoch):
@@ -103,8 +103,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
     
-    # Configure the MORPH model with enhanced sleep settings
-    config = MorphConfig(
+    # Configure the model with enhanced sleep settings
+    config = Config(
         input_size=784,  # 28x28 MNIST images
         expert_hidden_size=256,
         output_size=10,  # 10 MNIST classes
@@ -151,8 +151,8 @@ def main():
     )
     
     # Create model
-    model = MorphModel(config).to(device)
-    logging.info(f"Created MORPH model with {len(model.experts)} initial experts")
+    model = Model(config).to(device)
+    logging.info(f"Created model with {len(model.experts)} initial experts")
     
     # Setup loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -341,7 +341,7 @@ def main():
     )
     
     # Use the visualization utility to plot expert lifecycle
-    from morph.utils.visualization import visualize_expert_lifecycle, visualize_sleep_metrics
+    from src.visualization.visualization import visualize_expert_lifecycle, visualize_sleep_metrics
     
     # Plot expert lifecycle with all events
     visualize_expert_lifecycle(
@@ -404,7 +404,7 @@ def main():
     
     # Save summary statistics
     with open("results/expert_summary.txt", "w") as f:
-        f.write(f"MORPH Expert Lifecycle Summary\n")
+        f.write(f"Expert Lifecycle Summary\n")
         f.write(f"==============================\n\n")
         f.write(f"Initial experts: {config.num_initial_experts}\n")
         f.write(f"Final experts: {len(model.experts)}\n\n")
@@ -415,8 +415,8 @@ def main():
         f.write(f"Final model accuracy: {test_acc:.2f}%\n")
     
     # Save model
-    torch.save(model.state_dict(), "results/morph_model.pt")
-    logging.info("Model saved to results/morph_model.pt")
+    torch.save(model.state_dict(), "results/model.pt")
+    logging.info("Model saved to results/model.pt")
     logging.info(f"Expert summary saved to results/expert_summary.txt")
 
 

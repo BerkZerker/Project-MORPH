@@ -1,9 +1,9 @@
 import torch
 import pytest
 import networkx as nx
-from morph.config import MorphConfig
-from morph.core.knowledge_graph import KnowledgeGraph
-from morph.utils.testing.decorators import visualize_test, capture_test_state
+from src.config import MorphConfig
+from src.core.knowledge_graph import KnowledgeGraph
+from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
 @visualize_test

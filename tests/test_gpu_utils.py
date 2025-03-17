@@ -5,10 +5,10 @@ import os
 import sys
 from unittest.mock import patch, MagicMock
 
-# Add parent directory to path to import morph
+# Add parent directory to path to import src
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from morph.utils.gpu_utils import (
+from src.utils.gpu_utils import (
     detect_available_gpus,
     get_gpu_memory_info,
     select_best_gpu,
@@ -81,7 +81,7 @@ class TestGpuUtils:
         
         # Test with mocked memory info
         with patch('torch.cuda.is_available', return_value=True):
-            with patch('morph.utils.gpu_utils.get_gpu_memory_info', return_value={
+            with patch('src.utils.gpu_utils.get_gpu_memory_info', return_value={
                 0: {'free': 4.0},
                 1: {'free': 6.0},  # This one has more free memory
                 2: {'free': 2.0}
@@ -143,7 +143,7 @@ class TestGpuUtils:
         
         # Mock memory stats to simulate 8GB free, 1GB per sample
         with patch('torch.cuda.max_memory_allocated', return_value=4 * 1024**3):  # 4 GB for 4 samples
-            with patch('morph.utils.gpu_utils.get_gpu_memory_info', return_value={
+            with patch('src.utils.gpu_utils.get_gpu_memory_info', return_value={
                 0: {'free': 8.0}  # 8 GB free
             }):
                 # This should estimate ~8 samples can fit (8GB free / 1GB per sample)
@@ -200,7 +200,7 @@ class TestGpuUtils:
             with patch('torch.backends.cuda.matmul.allow_tf32', True):
                 with patch('torch.backends.cudnn.allow_tf32', True):
                     with patch('torch.backends.cudnn.benchmark', True):
-                        with patch('morph.utils.gpu_utils.set_gpu_memory_fraction') as mock_set:
+                        with patch('src.utils.gpu_utils.set_gpu_memory_fraction') as mock_set:
                             setup_gpu_environment()
                             # Should call set_gpu_memory_fraction
                             mock_set.assert_called_once()

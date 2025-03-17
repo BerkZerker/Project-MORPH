@@ -1,6 +1,6 @@
 import torch
 import pytest
-from morph.core.gating import GatingNetwork
+from src.core.gating import GatingNetwork
 
 
 def test_gating_initialization():

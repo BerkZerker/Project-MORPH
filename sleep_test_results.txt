@@ -1,1 +1,0 @@
-C:UsersSamAppDataLocalProgramsPythonPython310python.exe: command not found

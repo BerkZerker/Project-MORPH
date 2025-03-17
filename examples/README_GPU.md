@@ -1,6 +1,6 @@
-# GPU Training with MORPH
+# GPU Training
 
-This guide explains how to use GPU acceleration for training and running MORPH models. The implementation automatically detects available GPUs and can distribute the workload across multiple GPUs for improved performance.
+This guide explains how to use GPU acceleration for training and running models. The implementation automatically detects available GPUs and can distribute the workload across multiple GPUs for improved performance.
 
 ## Features
 
@@ -13,7 +13,7 @@ This guide explains how to use GPU acceleration for training and running MORPH m
 
 ## GPU Parallelization Strategies
 
-MORPH supports two main parallelization strategies for multi-GPU setups:
+The framework supports two main parallelization strategies for multi-GPU setups:
 
 1. **Data Parallel**: Distributes batches across multiple GPUs
    - Each GPU processes a portion of the batch
@@ -28,7 +28,7 @@ MORPH supports two main parallelization strategies for multi-GPU setups:
 
 ## Running the GPU Training Example
 
-The `gpu_training_example.py` script demonstrates how to use GPU acceleration with MORPH. It trains a model on the MNIST dataset and shows performance metrics.
+The `gpu_training_example.py` script demonstrates how to use GPU acceleration. It trains a model on the MNIST dataset and shows performance metrics.
 
 ### Command Line Arguments
 
@@ -97,7 +97,7 @@ The example script generates several visualizations in the `results/gpu_training
 
 ## Configuration Options
 
-The following configuration options in `MorphConfig` control GPU usage:
+The following configuration options in `Config` control GPU usage:
 
 ```python
 # GPU Acceleration

@@ -1,8 +1,8 @@
 import torch
 import pytest
 import networkx as nx
-from morph.core.model import MorphModel
-from morph.config import MorphConfig
+from src.core.model import MorphModel
+from src.config import MorphConfig
 
 
 class TestExpertMerging:

@@ -1,9 +1,9 @@
 import torch
 import numpy as np
 from torch.utils.data import DataLoader
-from morph.config import MorphConfig
-from morph.core.model import MorphModel
-from morph.utils.data import ContinualTaskDataset
+from src.config import MorphConfig
+from src.core.model import MorphModel
+from src.utils.data import ContinualTaskDataset
 
 
 class TestDataset(torch.utils.data.Dataset):

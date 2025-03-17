@@ -5,10 +5,10 @@ import os
 import sys
 from unittest.mock import patch, MagicMock
 
-# Add parent directory to path to import morph
+# Add parent directory to path to import src
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from morph.utils.distributed import (
+from src.utils.distributed import (
     DataParallelWrapper,
     ExpertParallelWrapper,
     create_parallel_wrapper,
@@ -105,7 +105,7 @@ class TestDistributed:
         # Mock distribute_experts_across_gpus
         expert_device_map = {0: devices[0], 1: devices[1], 2: devices[0]}
         
-        with patch('morph.utils.distributed.distribute_experts_across_gpus', return_value=expert_device_map):
+        with patch('src.utils.distributed.distribute_experts_across_gpus', return_value=expert_device_map):
             # Mock expert.to() method
             with patch.object(nn.Linear, 'to', return_value=nn.Linear(10, 5)):
                 wrapper = ExpertParallelWrapper(model, devices)
@@ -154,14 +154,14 @@ class TestDistributed:
         config.devices = [torch.device("cuda:0"), torch.device("cuda:1")]
         config.parallel_strategy = "data_parallel"
         
-        with patch('morph.utils.distributed.DataParallelWrapper', return_value="data_parallel_model"):
+        with patch('src.utils.distributed.DataParallelWrapper', return_value="data_parallel_model"):
             wrapped = create_parallel_wrapper(model, config)
             assert wrapped == "data_parallel_model"
         
         # Test expert parallel mode
         config.parallel_strategy = "expert_parallel"
         
-        with patch('morph.utils.distributed.ExpertParallelWrapper', return_value="expert_parallel_model"):
+        with patch('src.utils.distributed.ExpertParallelWrapper', return_value="expert_parallel_model"):
             wrapped = create_parallel_wrapper(model, config)
             assert wrapped == "expert_parallel_model"
         

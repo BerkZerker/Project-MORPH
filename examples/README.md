@@ -1,12 +1,12 @@
-# MORPH Examples
+# Examples
 
-This directory contains example implementations and use cases demonstrating the MORPH architecture.
+This directory contains example implementations and use cases demonstrating the framework architecture.
 
 ## Available Examples
 
 ### 1. MNIST Classification (`mnist_example.py`)
 
-A basic example showing how to train a MORPH model on the MNIST dataset. This example demonstrates:
+A basic example showing how to train a model on the MNIST dataset. This example demonstrates:
 
 - Basic model setup and configuration
 - Training and evaluation procedures
@@ -27,7 +27,7 @@ Results will be saved to the `results/` directory, including:
 
 ### 2. Continual Learning (`continual_learning_example.py`)
 
-An example that demonstrates how MORPH handles continual learning scenarios with distribution shifts:
+An example that demonstrates how the framework handles continual learning scenarios with distribution shifts:
 
 - Sequential task introduction with rotated MNIST digits
 - Measurement of catastrophic forgetting
@@ -48,9 +48,9 @@ Results will be saved to the `results/continual/` directory, including:
 
 ### 3. Performance Benchmarking (`benchmark_example.py`)
 
-An example that benchmarks MORPH against baseline methods for continual learning:
+An example that benchmarks the framework against baseline methods for continual learning:
 
-- Compares MORPH against standard networks and Elastic Weight Consolidation (EWC)
+- Compares our model against standard networks and Elastic Weight Consolidation (EWC)
 - Tests on multiple continual learning scenarios (rotating, split, and permuted MNIST)
 - Measures catastrophic forgetting and overall performance
 - Visualizes results across tasks and models
@@ -77,7 +77,7 @@ An example demonstrating the Sleep Module's memory consolidation capabilities:
 
 ### 5. GPU Training (`gpu_training_example.py`)
 
-An example demonstrating how to use GPU acceleration for training MORPH models:
+An example demonstrating how to use GPU acceleration for training models:
 
 - Automatic GPU detection and configuration
 - Multi-GPU training with different parallelization strategies
@@ -102,7 +102,7 @@ See [README_GPU.md](README_GPU.md) for detailed GPU usage instructions.
 
 ### 6. Multi-Domain Adaptation (Coming Soon)
 
-An example showing how MORPH can adapt to different data domains:
+An example showing how the framework can adapt to different data domains:
 
 - Training on multiple data types/distributions
 - Expert specialization by domain
@@ -116,21 +116,21 @@ All examples can be run directly from Python. Make sure you've installed the req
 pip install -r ../requirements.txt
 ```
 
-For customizing experiment configurations, modify the `MorphConfig` parameters in each example file.
+For customizing experiment configurations, modify the `Config` parameters in each example file.
 
 ## Creating Your Own Examples
 
-To implement your own MORPH example:
+To implement your own example:
 
 1. Import the necessary components:
    ```python
-   from morph.config import MorphConfig
-   from morph.core.model import MorphModel
+   from src.config import Config
+   from src.core.model import Model
    ```
 
 2. Configure the model:
    ```python
-   config = MorphConfig(
+   config = Config(
        input_size=YOUR_INPUT_SIZE,
        output_size=YOUR_OUTPUT_SIZE,
        # Other configuration parameters...
@@ -139,7 +139,7 @@ To implement your own MORPH example:
 
 3. Create and train the model:
    ```python
-   model = MorphModel(config)
+   model = Model(config)
    # Your training loop here...
    ```
 

@@ -13,15 +13,15 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Add parent directory to path to import morph
+# Add parent directory to path to import from src
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from morph.config import MorphConfig
-from morph.core.model import MorphModel
-from morph.utils.data import get_mnist_dataloaders
-from morph.utils.visualization import visualize_knowledge_graph, plot_expert_activations
-from morph.utils.gpu_utils import detect_available_gpus, get_gpu_memory_info, setup_gpu_environment
+from src.config import Config
+from src.core.model import Model
+from src.data.data import get_mnist_dataloaders
+from src.visualization.visualization import visualize_knowledge_graph, plot_expert_activations
+from src.utils.gpu_utils import detect_available_gpus, get_gpu_memory_info, setup_gpu_environment
 
 
 def train_epoch(model, train_loader, optimizer, criterion, epoch):
@@ -74,7 +74,7 @@ def evaluate(model, test_loader, criterion):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='MORPH GPU Training Example')
+    parser = argparse.ArgumentParser(description='GPU Training Example')
     parser.add_argument('--gpu-mode', type=str, default='auto', 
                         choices=['auto', 'cpu', 'single_gpu', 'multi_gpu'],
                         help='GPU mode to use')
@@ -110,8 +110,8 @@ def main():
         for gpu_idx, info in memory_info.items():
             logging.info(f"GPU {gpu_idx}: {info['total']:.2f} GB total, {info['free']:.2f} GB free")
     
-    # Configure the MORPH model with GPU settings
-    config = MorphConfig(
+    # Configure the model with GPU settings
+    config = Config(
         # Model architecture
         input_size=784,  # 28x28 MNIST images
         expert_hidden_size=256,
@@ -142,7 +142,7 @@ def main():
     )
     
     # Create model
-    model = MorphModel(config)
+    model = Model(config)
     
     # Log GPU configuration
     logging.info(f"GPU Mode: {config.gpu_mode}")
@@ -276,7 +276,7 @@ def main():
     
     # Save performance summary
     with open("results/gpu_training/performance_summary.txt", "w") as f:
-        f.write(f"MORPH GPU Training Performance Summary\n")
+        f.write(f"GPU Training Performance Summary\n")
         f.write(f"=====================================\n\n")
         f.write(f"GPU Mode: {config.gpu_mode}\n")
         f.write(f"Devices: {[str(d) for d in config.devices]}\n")
@@ -293,8 +293,8 @@ def main():
         f.write(f"Final model accuracy: {test_acc:.2f}%\n")
     
     # Save model
-    torch.save(model.state_dict(), "results/gpu_training/morph_model.pt")
-    logging.info("Model saved to results/gpu_training/morph_model.pt")
+    torch.save(model.state_dict(), "results/gpu_training/model.pt")
+    logging.info("Model saved to results/gpu_training/model.pt")
     logging.info(f"Performance summary saved to results/gpu_training/performance_summary.txt")
 
 

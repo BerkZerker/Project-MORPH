@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "morph"
+name = "moe-framework"
 version = "0.1.0"
-description = "MORPH: Mixture Of experts with Recursive Post-processing & Hierarchy"
+description = "Mixture Of experts with Recursive Post-processing & Hierarchy"
 readme = "README.md"
 requires-python = ">=3.8"
 license = {file = "LICENSE"}
 authors = [
-    {name = "Project MORPH Contributors"}
+    {name = "Project Contributors"}
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -50,11 +50,11 @@ viz = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/yourusername/project-morph"
-"Bug Tracker" = "https://github.com/yourusername/project-morph/issues"
+"Homepage" = "https://github.com/yourusername/moe-framework"
+"Bug Tracker" = "https://github.com/yourusername/moe-framework/issues"
 
 [tool.setuptools]
-packages = ["morph"]
+packages = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

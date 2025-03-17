@@ -13,14 +13,14 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Add parent directory to path to import morph
+# Add parent directory to path to import from src
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from morph.config import MorphConfig
-from morph.core.model import MorphModel
-from morph.utils.data import get_mnist_dataloaders
-from morph.utils.visualization import (
+from src.config import Config
+from src.core.model import Model
+from src.data.data import get_mnist_dataloaders
+from src.visualization.visualization import (
     visualize_knowledge_graph, 
     plot_expert_activations,
     visualize_expert_lifecycle,
@@ -124,7 +124,7 @@ def visualize_sleep_benefits(model, test_loader, device, output_path="results/sl
     Visualize the benefits of sleep by comparing model performance before and after sleep.
     
     Args:
-        model: MorphModel instance
+        model: Model instance
         test_loader: Test data loader
         device: Device for computation
         output_path: Path to save visualization
@@ -210,7 +210,7 @@ def evaluate_per_digit(model, test_loader, device):
     Evaluate model accuracy per digit.
     
     Args:
-        model: MorphModel instance
+        model: Model instance
         test_loader: Test data loader
         device: Device for computation
         
@@ -258,7 +258,7 @@ def evaluate_per_digit(model, test_loader, device):
 
 def main():
     """
-    Run the MORPH sleep module example with continual learning on MNIST.
+    Run the sleep module example with continual learning on MNIST.
     """
     # Create output directory for results
     os.makedirs('results', exist_ok=True)
@@ -268,8 +268,8 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f"Using device: {device}")
     
-    # Configure the MORPH model with enhanced sleep settings
-    config = MorphConfig(
+    # Configure the model with enhanced sleep settings
+    config = Config(
         input_size=784,  # 28x28 MNIST images
         expert_hidden_size=256,
         output_size=10,  # 10 MNIST classes
@@ -316,8 +316,8 @@ def main():
     )
     
     # Create model
-    model = MorphModel(config).to(device)
-    logging.info(f"Created MORPH model with {len(model.experts)} initial experts")
+    model = Model(config).to(device)
+    logging.info(f"Created model with {len(model.experts)} initial experts")
     
     # Setup loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -513,8 +513,8 @@ def main():
     )
     
     # Save model
-    torch.save(model.state_dict(), "results/sleep_module/morph_model.pt")
-    logging.info(f"Model saved to results/sleep_module/morph_model.pt")
+    torch.save(model.state_dict(), "results/sleep_module/model.pt")
+    logging.info(f"Model saved to results/sleep_module/model.pt")
     
     # Print final summary
     logging.info(f"Final accuracy: {final_metrics['accuracy']:.2f}%")

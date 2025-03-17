@@ -1,8 +1,8 @@
-# MORPH: Mixture Of experts with Recursive Post-processing & Hierarchy
+# Mixture Of experts with Recursive Post-processing & Hierarchy
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-MORPH is a novel neural network architecture implementing a **Dynamic Mixture of Experts (MoE)** model with continuous learning capabilities, adaptive expert creation, and brain-inspired post-processing mechanisms.
+A novel neural network architecture implementing a **Dynamic Mixture of Experts (MoE)** model with continuous learning capabilities, adaptive expert creation, and brain-inspired post-processing mechanisms.
 
 ## Key Features
 
@@ -46,7 +46,7 @@ graph TD
     class Sleep sleepStyle;
 ```
 
-MORPH consists of four main components:
+The framework consists of four main components:
 
 1. **Experts**: Specialized neural networks trained on specific subtasks or data distributions
 2. **Gating Network**: Determines which experts to activate for each input
@@ -66,8 +66,8 @@ MORPH consists of four main components:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/project-morph.git
-cd project-morph
+git clone https://github.com/yourusername/moe-framework.git
+cd moe-framework
 
 # Create and activate virtual environment (recommended)
 python -m venv venv
@@ -83,11 +83,11 @@ pip install -e ".[dev]"
 ### Example Usage
 
 ```python
-from morph.core.model import MorphModel
-from morph.config import MorphConfig
+from src.core.model import Model
+from src.config import Config
 
-# Initialize MORPH model
-config = MorphConfig(
+# Initialize model
+config = Config(
     input_size=784,  # Input feature size
     expert_hidden_size=256,
     output_size=10,  # Output size
@@ -100,7 +100,7 @@ config = MorphConfig(
     sleep_cycle_frequency=1000,
     enable_meta_learning=True
 )
-model = MorphModel(config)
+model = Model(config)
 
 # Setup training
 import torch.nn as nn
@@ -127,11 +127,11 @@ for epoch in range(10):
 
 ## GPU Acceleration
 
-MORPH supports GPU acceleration for faster training and inference:
+The framework supports GPU acceleration for faster training and inference:
 
 ```python
 # Configure GPU settings
-config = MorphConfig(
+config = Config(
     # ... other settings ...
     
     # GPU settings
@@ -142,7 +142,7 @@ config = MorphConfig(
 )
 ```
 
-For multi-GPU training, MORPH supports two parallelization strategies:
+For multi-GPU training, the framework supports two parallelization strategies:
 
 1. **Data Parallel**: Distributes batches across multiple GPUs
 2. **Expert Parallel**: Distributes experts across multiple GPUs
@@ -151,11 +151,11 @@ See [examples/README_GPU.md](examples/README_GPU.md) for detailed GPU usage inst
 
 ## Implementation Progress
 
-MORPH is being implemented in five phases:
+The framework is being implemented in five phases:
 
 ```mermaid
 gantt
-    title MORPH Implementation Progress
+    title Implementation Progress
     dateFormat YYYY-MM-DD
     
     section Phase 1
@@ -213,13 +213,84 @@ Current status:
 | GPU Acceleration | ✅ Complete | 100% |
 | Test Visualizations | ✅ Complete | 100% |
 
-See the [PROJECT_PLAN.md](PROJECT_PLAN.md) for detailed implementation steps.
+## Project Implementation Plan
+
+### Phase 1: Basic MoE Implementation (Foundation) ✅
+- **Goal**: Create a functional Mixture of Experts system with standard gating mechanism
+- **Tasks**:
+  1. ✅ Implement individual expert networks (small transformer blocks or MLPs)
+  2. ✅ Build basic gating network for expert selection
+  3. ✅ Create sparse activation mechanism with top-k routing
+  4. ✅ Implement forward/backward pass handling with selective expert training
+  5. ✅ Build evaluation framework to measure expert specialization
+  6. ✅ Test on small datasets (e.g., MNIST, small text corpus)
+- **Deliverables**: ✅ Working MoE model with fixed set of experts
+- **Completed**: January 2025
+
+### Phase 2: Adaptive Expert Creation ✅
+- **Goal**: Enable dynamic expert creation when existing experts underperform
+- **Tasks**:
+  1. ✅ Implement uncertainty metrics to identify insufficient expert coverage
+  2. ✅ Create expert initialization mechanism (from scratch or cloning)
+  3. ✅ Build basic knowledge graph to track conceptual relationships
+  4. ✅ Develop semantic similarity routing based on input embeddings
+  5. ✅ Test with gradually introduced novel data
+- **Deliverables**: ✅ Dynamic MoE that grows new experts as needed
+- **Completed**: February 2025
+
+### Phase 3: Expert Merging & Pruning ✅
+- **Goal**: Optimize expert count through consolidation and removal
+- **Tasks**:
+  1. ✅ Implement similarity metrics between experts (weight space, activation patterns)
+  2. ✅ Create expert merging algorithm that preserves knowledge
+  3. ✅ Build dormant expert detection and pruning mechanism
+  4. ✅ Design expert utilization tracking system
+  5. ✅ Test with intentionally redundant experts
+- **Deliverables**: ✅ Self-optimizing network that maintains efficient expert count
+- **Completed**: March 2025
+
+### Phase 4: Sleep Function Implementation ✅
+- **Goal**: Create periodic post-processing for knowledge consolidation
+- **Tasks**:
+  1. ✅ Implement memory replay system using stored activations
+  2. ✅ Build expert reorganization mechanism based on activation patterns
+  3. ✅ Create meta-learning optimization for expert management
+  4. ✅ Implement scheduler for sleep phase triggering
+  5. ✅ Test with long-running continuous learning scenarios
+- **Deliverables**: ✅ Complete MORPH system with all components functioning
+- **Completed**: March 2025
+
+### Phase 5: Advanced Knowledge Graph and Memory Management ✅
+- **Goal**: Improve knowledge representation and meta-learning capabilities
+- **Tasks**:
+  1. ✅ Implement dedicated KnowledgeGraph class with advanced querying
+  2. ✅ Build SleepModule class with improved memory consolidation
+  3. ✅ Create concept-based expert routing and specialization
+  4. ✅ Add meta-learning optimization for hyperparameters
+  5. ✅ Implement continual learning for concept drift handling
+  6. ✅ Implement prioritized memory replay for better knowledge retention (35% reduction in catastrophic forgetting)
+  7. ✅ Create advanced expert reorganization for specialized feature space division
+  8. ✅ Add concept drift detection and adaptation (3x faster adaptation than baseline models)
+- **Deliverables**: ✅ Advanced knowledge representation and adaptive learning
+- **Completed**: April 2025
+
+### Phase 6: Testing, Training and Advanced Features 🔄
+- **Goal**: Comprehensive testing, full model training and research extensions
+- **Tasks**:
+  1. 🔄 Implement comprehensive unit test suite for all components
+  2. 🔄 Conduct full-scale model training on large datasets
+  3. 🔄 Develop multi-level expert hierarchies for more efficient knowledge representation
+  4. 🔄 Research cross-modal knowledge transfer with shared expert knowledge
+  5. 🔄 Explore explainable AI applications using knowledge graph visualization
+  6. 🔄 Investigate hardware-optimized implementations for efficient computation
+- **Deliverables**: 🔄 Fully tested, trained model with advanced research extensions
+- **Target Completion**: December 2025
 
 ## Examples
 
 ### Continual Learning
 
-MORPH excels at continual learning tasks where the data distribution changes over time. The `examples/continual_learning_example.py` demonstrates this capability by training on a sequence of rotated MNIST tasks:
+The framework excels at continual learning tasks where the data distribution changes over time. The `examples/continual_learning_example.py` demonstrates this capability by training on a sequence of rotated MNIST tasks:
 
 ```bash
 # Run the continual learning example
@@ -234,7 +305,7 @@ This example:
 
 ### GPU Training
 
-The `examples/gpu_training_example.py` demonstrates how to use GPU acceleration with MORPH:
+The `examples/gpu_training_example.py` demonstrates how to use GPU acceleration:
 
 ```bash
 # Basic usage with automatic GPU detection
@@ -258,24 +329,25 @@ See [examples/README_GPU.md](examples/README_GPU.md) for more details.
 ## Project Structure
 
 ```
-morph/
+src/
 ├── core/                  # Core model components
-│   ├── model.py           # Main MORPH model implementation
+│   ├── model.py           # Main model implementation
 │   ├── expert.py          # Expert module implementation
 │   ├── gating.py          # Gating network for routing
 │   ├── knowledge_graph.py # Expert relationship management
-│   ├── sleep.py           # Sleep cycle implementation  
-│   ├── expert_management/ # Expert lifecycle management
-│   ├── training/          # Training utilities
-│   ├── model_utils/       # Model utility functions
-│   └── sleep_management/  # Sleep cycle components
+│   └── sleep.py           # Sleep cycle implementation
+├── core/training/         # Training utilities
+│   ├── evaluate.py        # Evaluation functions
+│   └── train_step.py      # Training step implementation
 ├── utils/                 # Utility functions
 │   ├── benchmarks/        # Benchmarking utilities
 │   ├── visualization/     # Visualization tools
 │   ├── distributed/       # Distributed computing utilities
-│   ├── testing/           # Test visualization framework
-│   └── data.py            # Data handling utilities
+│   └── testing/           # Test visualization framework
+├── data/                  # Data handling utilities
+│   └── data.py            # Data loading and processing
 └── config.py              # Configuration utilities
+```
 
 ## Development
 
@@ -295,23 +367,31 @@ python -m pytest tests/test_expert.py::test_expert_initialization
 python -m pytest tests/test_sleep.py
 
 # Format code with Black
-python -m black morph/ tests/
+python -m black src/ tests/
 
 # Sort imports
-python -m isort morph/ tests/
+python -m isort src/ tests/
 
 # Run type checking
-python -m mypy morph/
+python -m mypy src/
 
 # Run linting
-python -m flake8 morph/ tests/
+python -m flake8 src/ tests/
 ```
 
-See [CLAUDE.md](CLAUDE.md) for more detailed development guidelines.
+### Code Style Guidelines
+- **Naming**: snake_case for variables/functions, PascalCase for classes
+- **Formatting**: Black (line length 88) and isort with Black profile
+- **Imports**: Group imports (stdlib, third-party, local) with blank lines between groups
+- **Types**: Use type hints for all functions/methods (disallow_untyped_defs=True)
+- **Documentation**: Docstrings for classes and functions using triple quotes ("""...)
+- **Error Handling**: Proper exception handling around dynamic expert creation/merging
+- **Testing**: Pytest with descriptive test names (test_*) and docstrings
+- **Architecture**: Follow modular design in core/ (experts, gating, knowledge graph, sleep)
 
 ### Test Visualizations
 
-MORPH includes a comprehensive test visualization framework that helps you understand what's happening during test execution. The framework captures the state of models during tests and generates visual representations of:
+The framework includes a comprehensive test visualization framework that helps you understand what's happening during test execution. The framework captures the state of models during tests and generates visual representations of:
 
 - Knowledge graph structure and changes
 - Expert activation patterns
@@ -329,7 +409,7 @@ python -m pytest tests/
 
 For more details, see [tests/README_VISUALIZATIONS.md](tests/README_VISUALIZATIONS.md).
 
-## Visualization of the MORPH Approach
+## Visualization of the Approach
 
 ```mermaid
 graph LR
@@ -368,7 +448,7 @@ graph LR
     class Sleep sleepStyle;
 ```
 
-The diagram above shows how the three key mechanisms of MORPH (training, knowledge graph management, and sleep cycles) interact to create a dynamic, adaptive system.
+The diagram above shows how the three key mechanisms (training, knowledge graph management, and sleep cycles) interact to create a dynamic, adaptive system.
 
 ## Contributing
 
@@ -380,14 +460,14 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Citation
 
-If you use MORPH in your research, please cite:
+If you use this framework in your research, please cite:
 
 ```bibtex
-@misc{morph2025,
+@misc{moe-framework2025,
   author = {Berkebile, Samuel},
-  title = {MORPH: Mixture Of experts with Recursive Post-processing & Hierarchy},
+  title = {Mixture Of experts with Recursive Post-processing & Hierarchy},
   year = {2025},
   publisher = {GitHub},
   journal = {GitHub repository},
-  howpublished = {\url{https://github.com/yourusername/project-morph}}
+  howpublished = {\url{https://github.com/yourusername/moe-framework}}
 }

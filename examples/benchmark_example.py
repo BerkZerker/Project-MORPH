@@ -12,13 +12,13 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Add parent directory to path to import morph
+# Add parent directory to path to import from src
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from morph.config import MorphConfig
-from morph.core.model import MorphModel
-from morph.utils.benchmarks import (
+from src.config import Config
+from src.core.model import Model
+from src.utils.benchmarks import (
     StandardModel,
     EWCModel,
     ContinualLearningBenchmark,
@@ -30,7 +30,7 @@ from morph.utils.benchmarks import (
 
 def run_benchmark(benchmark_type="rotating", num_tasks=5):
     """
-    Run a continual learning benchmark comparing MORPH against other models.
+    Run a continual learning benchmark comparing our model against other models.
     
     Args:
         benchmark_type: Type of benchmark to run ("rotating", "split", or "permuted")
@@ -73,8 +73,8 @@ def run_benchmark(benchmark_type="rotating", num_tasks=5):
         device=device
     )
     
-    # Create MORPH model
-    morph_config = MorphConfig(
+    # Create our model
+    model_config = Config(
         input_size=feature_dim,
         expert_hidden_size=256,
         output_size=output_dim,
@@ -107,12 +107,12 @@ def run_benchmark(benchmark_type="rotating", num_tasks=5):
         meta_learning_intervals=2
     )
     
-    morph_model = MorphModel(morph_config).to(device)
+    our_model = Model(model_config).to(device)
     
-    # Create standard model (same capacity as MORPH)
+    # Create standard model (same capacity as our model)
     standard_model = StandardModel(
         input_size=feature_dim,
-        hidden_size=512,  # Larger to match MORPH capacity
+        hidden_size=512,  # Larger to match our model capacity
         output_size=output_dim,
         num_layers=3
     ).to(device)
@@ -126,19 +126,19 @@ def run_benchmark(benchmark_type="rotating", num_tasks=5):
     ).to(device)
     
     # Create optimizers
-    morph_optimizer = optim.Adam(morph_model.parameters(), lr=0.001)
+    our_optimizer = optim.Adam(our_model.parameters(), lr=0.001)
     standard_optimizer = optim.Adam(standard_model.parameters(), lr=0.001)
     ewc_optimizer = optim.Adam(ewc_model.parameters(), lr=0.001)
     
     # Create model and optimizer dictionaries
     models = {
-        "MORPH": morph_model,
+        "MOE Framework": our_model,
         "Standard": standard_model,
         "EWC": ewc_model
     }
     
     optimizers = {
-        "MORPH": morph_optimizer,
+        "MOE Framework": our_optimizer,
         "Standard": standard_optimizer,
         "EWC": ewc_optimizer
     }
@@ -176,24 +176,24 @@ def run_benchmark(benchmark_type="rotating", num_tasks=5):
     for model_name, avg_forgetting in results['avg_forgetting'].items():
         logging.info(f"  {model_name}: {avg_forgetting:.2f}%")
     
-    # Check final MORPH model structure
-    logging.info(f"Final MORPH model structure:")
-    logging.info(f"  Initial experts: {morph_config.num_initial_experts}")
-    logging.info(f"  Final experts: {len(morph_model.experts)}")
+    # Check final model structure
+    logging.info(f"Final model structure:")
+    logging.info(f"  Initial experts: {model_config.num_initial_experts}")
+    logging.info(f"  Final experts: {len(our_model.experts)}")
     
-    # Save MORPH model
+    # Save our model
     torch.save(
-        morph_model.state_dict(),
-        f"results/benchmarks/morph_{benchmark_type}_{num_tasks}tasks.pt"
+        our_model.state_dict(),
+        f"results/benchmarks/model_{benchmark_type}_{num_tasks}tasks.pt"
     )
-    logging.info(f"MORPH model saved to results/benchmarks/morph_{benchmark_type}_{num_tasks}tasks.pt")
+    logging.info(f"Model saved to results/benchmarks/model_{benchmark_type}_{num_tasks}tasks.pt")
     
     # Return results for further analysis
     return results
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run MORPH benchmarks for continual learning")
+    parser = argparse.ArgumentParser(description="Run benchmarks for continual learning")
     parser.add_argument("--type", type=str, default="rotating",
                       choices=["rotating", "split", "permuted"],
                       help="Type of benchmark to run")

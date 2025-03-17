@@ -1,17 +1,17 @@
-# MORPH API Reference
+# API Reference
 
 ## Core Modules
 
-### `morph.core.model.MorphModel`
+### `src.core.model.Model`
 
-The main model class that implements the MORPH architecture.
+The main model class that implements the architecture.
 
 ```python
-model = MorphModel(config)
+model = Model(config)
 ```
 
 **Parameters:**
-- `config`: Instance of `MorphConfig` with model configuration
+- `config`: Instance of `Config` with model configuration
 
 **Methods:**
 - `forward(x, training=True)`: Forward pass through the model
@@ -47,7 +47,7 @@ model = MorphModel(config)
 - `adaptive_sleep_frequency`: Current sleep frequency after adaptation
 - `next_sleep_step`: Step at which the next sleep cycle will be triggered
 
-### `morph.core.expert.Expert`
+### `src.core.expert.Expert`
 
 Individual expert network that specializes in a particular subset of data.
 
@@ -85,7 +85,7 @@ expert = Expert(input_size, hidden_size, output_size, num_layers=2)
   - `loss_value`: Loss value from a recent forward pass
   - Returns: Updated confidence score
 
-### `morph.core.gating.GatingNetwork`
+### `src.core.gating.GatingNetwork`
 
 Gating network that determines which experts to use for a given input.
 
@@ -112,7 +112,7 @@ gating = GatingNetwork(input_size, num_experts, k=2, routing_type="top_k")
 - `update_num_experts(num_experts)`: Update the gating network when number of experts changes
   - `num_experts`: New number of experts
 
-### `morph.core.knowledge_graph.KnowledgeGraph`
+### `src.core.knowledge_graph.KnowledgeGraph`
 
 Manages the relationships between experts, concept specialization, and expert similarities.
 
@@ -183,7 +183,7 @@ kg = KnowledgeGraph(config)
 - `rebuild_graph(expert_count)`: Rebuild the knowledge graph after expert count changes
   - `expert_count`: New expert count
 
-### `morph.core.sleep.SleepModule`
+### `src.core.sleep.SleepModule`
 
 Implements the 'sleep' phase of the model for knowledge consolidation.
 
@@ -204,18 +204,18 @@ sleep_module = SleepModule(config, knowledge_graph)
   - `activation_data`: Dictionary containing activation information
   
 - `perform_sleep_cycle(model, step_count)`: Perform a complete sleep cycle
-  - `model`: The MORPH model
+  - `model`: The model
   - `step_count`: Current training step
   - Returns: Dictionary of metrics from the sleep cycle
 
 ## Configuration
 
-### `morph.config.MorphConfig`
+### `src.config.Config`
 
-Configuration class for the MORPH model.
+Configuration class for the model.
 
 ```python
-config = MorphConfig(
+config = Config(
     input_size=784,
     expert_hidden_size=256,
     output_size=10,
@@ -259,7 +259,7 @@ config = MorphConfig(
 
 ## Utilities
 
-### `morph.utils.data`
+### `src.data.data`
 
 Data handling utilities.
 
@@ -272,20 +272,20 @@ Data handling utilities.
 **Classes:**
 - `ContinualTaskDataset`: Dataset for continual learning with distribution shifts
 
-### `morph.utils.visualization`
+### `src.visualization.visualization`
 
 Visualization utilities for model analysis.
 
 **Functions:**
 - `visualize_knowledge_graph(model, output_path=None, highlight_dormant=True, highlight_similar=True, highlight_specialization=True)`: Visualize the knowledge graph
-  - `model`: MorphModel instance
+  - `model`: Model instance
   - `output_path`: Path to save the visualization
   - `highlight_dormant`: Whether to highlight dormant experts
   - `highlight_similar`: Whether to highlight similar experts
   - `highlight_specialization`: Whether to highlight expert specialization
   
 - `plot_expert_activations(model, n_steps, output_path=None)`: Plot expert activation patterns
-  - `model`: MorphModel instance
+  - `model`: Model instance
   - `n_steps`: Number of steps to show history for
   - `output_path`: Path to save the visualization
   
@@ -297,6 +297,6 @@ Visualization utilities for model analysis.
   - `output_path`: Path to save the visualization
   
 - `visualize_sleep_metrics(model, sleep_events=None, output_path=None)`: Visualize sleep cycle metrics
-  - `model`: MorphModel instance with sleep cycle tracking
+  - `model`: Model instance with sleep cycle tracking
   - `sleep_events`: List of (step, metrics) tuples showing sleep events
   - `output_path`: Path to save the visualization

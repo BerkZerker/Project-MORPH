@@ -1,7 +1,7 @@
 import torch
 import pytest
-from morph.core.expert import Expert
-from morph.utils.testing.decorators import visualize_test, capture_test_state
+from src.core.expert import Expert
+from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
 @visualize_test

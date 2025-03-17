@@ -9,20 +9,20 @@ from tqdm import tqdm
 import time
 from typing import Dict, List, Tuple
 
-# Add parent directory to path to import morph
+# Add parent directory to path to import from src
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from morph.config import MorphConfig
-from morph.core.model import MorphModel
-from morph.utils.data import get_mnist_dataloaders
-from morph.utils.benchmarks import (
+from src.config import Config
+from src.core.model import Model
+from src.data.data import get_mnist_dataloaders
+from src.utils.benchmarks import (
     StandardModel,
     EWCModel,
     ContinualLearningBenchmark,
     create_rotating_mnist_tasks
 )
-from morph.utils.visualization import (
+from src.visualization.visualization import (
     visualize_knowledge_graph,
     plot_expert_activations,
     visualize_expert_lifecycle,
@@ -49,18 +49,18 @@ def main():
     # Run the advanced continual learning benchmark
     run_continual_learning_benchmark(device)
     
-def create_enhanced_morph_model(device):
+def create_enhanced_model(device):
     """
-    Create an enhanced MORPH model with the improved sleep module.
+    Create an enhanced model with the improved sleep module.
     
     Args:
         device: Device to create the model on
         
     Returns:
-        Configured MORPH model
+        Configured model
     """
     # Configure the model with enhanced sleep settings
-    config = MorphConfig(
+    config = Config(
         input_size=784,  # 28x28 MNIST images flattened
         expert_hidden_size=256,
         output_size=10,  # 10 MNIST classes
@@ -109,14 +109,14 @@ def create_enhanced_morph_model(device):
     )
     
     # Create the model
-    model = MorphModel(config).to(device)
-    logging.info(f"Created enhanced MORPH model with {len(model.experts)} initial experts")
+    model = Model(config).to(device)
+    logging.info(f"Created enhanced model with {len(model.experts)} initial experts")
     
     return model, config
 
 def run_continual_learning_benchmark(device):
     """
-    Run comprehensive continual learning benchmark comparing MORPH with baseline models.
+    Run comprehensive continual learning benchmark comparing our model with baseline models.
     
     Args:
         device: Device to run on
@@ -128,8 +128,8 @@ def run_continual_learning_benchmark(device):
     # Setup models for comparison
     logging.info("Setting up models for benchmarking...")
     
-    # Enhanced MORPH model
-    morph_model, morph_config = create_enhanced_morph_model(device)
+    # Enhanced model
+    model, config = create_enhanced_model(device)
     
     # Standard neural network model
     standard_model = StandardModel(
@@ -148,9 +148,9 @@ def run_continual_learning_benchmark(device):
     ).to(device)
     
     # Create optimizers
-    morph_optimizer = optim.Adam(
-        morph_model.parameters(), 
-        lr=morph_config.learning_rate
+    model_optimizer = optim.Adam(
+        model.parameters(), 
+        lr=config.learning_rate
     )
     
     standard_optimizer = optim.Adam(
@@ -165,13 +165,13 @@ def run_continual_learning_benchmark(device):
     
     # Create model dictionary for benchmark
     models = {
-        "MORPH": morph_model,
+        "MOE Framework": model,
         "Standard NN": standard_model,
         "EWC": ewc_model
     }
     
     optimizers = {
-        "MORPH": morph_optimizer,
+        "MOE Framework": model_optimizer,
         "Standard NN": standard_optimizer,
         "EWC": ewc_optimizer
     }
@@ -212,15 +212,15 @@ def run_continual_learning_benchmark(device):
     # Generate visualizations from benchmark results
     generate_benchmark_visualizations(models, results)
     
-    # Track expert evolution for MORPH (throughout training)
-    track_expert_evolution(morph_model, num_tasks)
+    # Track expert evolution for our model (throughout training)
+    track_expert_evolution(model, num_tasks)
 
 def track_expert_evolution(model, num_tasks):
     """
     Track and visualize the evolution of experts during training.
     
     Args:
-        model: MORPH model
+        model: Our model
         num_tasks: Number of tasks trained on
     """
     # Visualize expert knowledge graph
@@ -356,9 +356,9 @@ def generate_benchmark_visualizations(models, results):
     plt.savefig("results/continual_learning/benchmark/avg_forgetting.png", dpi=300)
     plt.close()
     
-    # 5. Plot expert metrics for MORPH
-    if 'expert_metrics' in results and 'MORPH' in results['expert_metrics']:
-        expert_metrics = results['expert_metrics']['MORPH']
+    # 5. Plot expert metrics for our model
+    if 'expert_metrics' in results and 'MOE Framework' in results['expert_metrics']:
+        expert_metrics = results['expert_metrics']['MOE Framework']
         
         # Expert utilization across tasks
         plt.figure(figsize=(12, 8))
@@ -402,8 +402,8 @@ def generate_benchmark_visualizations(models, results):
         plt.close()
     
     # 6. Plot task overlap matrix (how similar the tasks are)
-    if 'expert_metrics' in results and 'MORPH' in results['expert_metrics']:
-        expert_metrics = results['expert_metrics']['MORPH']
+    if 'expert_metrics' in results and 'MOE Framework' in results['expert_metrics']:
+        expert_metrics = results['expert_metrics']['MOE Framework']
         
         if 'task_expert_overlap' in expert_metrics:
             task_overlap = expert_metrics['task_expert_overlap']
