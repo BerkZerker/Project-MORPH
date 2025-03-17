@@ -1,5 +1,4 @@
 import torch
-import pytest
 import numpy as np
 from torch.utils.data import DataLoader
 from morph.config import MorphConfig

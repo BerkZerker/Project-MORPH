@@ -1,11 +1,8 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import numpy as np
 import logging
-import copy
-from typing import List, Dict, Tuple, Optional, Any, Union
-from torch.cuda.amp import autocast, GradScaler
+from torch.amp import autocast, GradScaler
 
 from morph.core.expert import Expert
 from morph.core.gating import GatingNetwork
@@ -61,7 +58,7 @@ class MorphModel(nn.Module):
         self.enable_mixed_precision = config.enable_mixed_precision and any(d.type == 'cuda' for d in self.devices)
         if self.enable_mixed_precision:
             logging.info("Mixed precision training enabled")
-            self.scaler = GradScaler()
+            self.scaler = GradScaler('cuda')
         else:
             self.scaler = None
         
@@ -168,7 +165,7 @@ class MorphModel(nn.Module):
         batch_size = x.shape[0]
         
         # Use autocast for mixed precision if enabled
-        with autocast(enabled=self.enable_mixed_precision):
+        with autocast('cuda', enabled=self.enable_mixed_precision):
             # Get routing weights from gating network
             routing_weights, expert_indices, uncertainty = self.gating(x, training)
             
@@ -739,7 +736,7 @@ class MorphModel(nn.Module):
         # Mixed precision training if enabled
         if self.enable_mixed_precision and any(d.type == 'cuda' for d in self.devices):
             # Forward pass with autocast
-            with autocast():
+            with autocast('cuda'):
                 outputs = self(inputs, training=True)
                 loss = criterion(outputs, targets)
             
