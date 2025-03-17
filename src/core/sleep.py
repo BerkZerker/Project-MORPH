@@ -1,6 +1,4 @@
-import torch
-import logging
-from typing import List, Dict, Tuple, Any, Optional
+from typing import List, Dict, Tuple, Any
 
 from src.core.sleep_management.sleep_core import SleepCore
 from src.core.sleep_management.memory_management import add_to_memory_buffer, perform_memory_replay

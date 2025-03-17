@@ -1,11 +1,10 @@
 """
-Decorators for test visualization in MORPH models.
+Decorators for live test visualization in MORPH models.
 
 This module provides decorators and context managers that make it easy
-to add visualization capabilities to tests.
+to add live visualization capabilities to tests.
 """
 
-import os
 import time
 import inspect
 import functools
@@ -19,15 +18,15 @@ from src.utils.testing import live_server, progress_tracker, live_visualizer
 
 def visualize_test(func=None, *, enabled=True, output_dir=None, live=True):
     """
-    Decorator to visualize a test function.
+    Decorator to enable live visualization for a test function.
     
     This decorator captures the state of the model before and after the test,
-    and generates visualizations to help understand what happened during the test.
+    and sends it to the live visualization server.
     
     Args:
         func: The test function to decorate
         enabled: Whether visualization is enabled (default: True)
-        output_dir: Directory to save visualizations (default: None, uses default directory)
+        output_dir: Ignored parameter, kept for backward compatibility
         live: Whether to enable live visualization (default: True)
         
     Returns:
@@ -42,16 +41,14 @@ def visualize_test(func=None, *, enabled=True, output_dir=None, live=True):
     def decorator(test_func):
         @functools.wraps(test_func)
         def wrapper(*args, **kwargs):
-            if not enabled:
+            if not enabled or not live:
                 return test_func(*args, **kwargs)
             
             # Get the test name
             test_name = test_func.__name__
             
-            # Get or create visualizer
+            # Get visualizer
             visualizer = get_default_visualizer()
-            if output_dir:
-                visualizer = TestVisualizer(output_dir)
             
             # Start tracking the test
             visualizer.start_test(test_name)
@@ -59,16 +56,15 @@ def visualize_test(func=None, *, enabled=True, output_dir=None, live=True):
             # Find MorphModel instances in args or kwargs
             model = _find_model_in_args(args, kwargs)
             
-            # Capture initial state with live visualization if enabled
-            if live and model:
+            # Capture initial state with live visualization if we found a model
+            if model:
                 # Estimate total steps based on test name
                 estimated_steps = _estimate_test_steps(test_name)
                 
                 # Capture initial state
                 _capture_live_state(model, "Initial State", 0, estimated_steps)
-            
-            # Capture initial state if we found a model
-            if model:
+                
+                # Also track in visualizer for state management
                 visualizer.capture_state(model, "Initial State")
             
             # Run the test
@@ -77,32 +73,32 @@ def visualize_test(func=None, *, enabled=True, output_dir=None, live=True):
                 
                 # Capture final state if we found a model
                 if model:
-                    if live:
-                        # Estimate total steps based on test name
-                        estimated_steps = _estimate_test_steps(test_name)
-                        
-                        # Capture final state
-                        _capture_live_state(model, "Final State", estimated_steps, estimated_steps)
+                    # Estimate total steps based on test name
+                    estimated_steps = _estimate_test_steps(test_name)
                     
+                    # Capture final state
+                    _capture_live_state(model, "Final State", estimated_steps, estimated_steps)
+                    
+                    # Also track in visualizer for state management
                     visualizer.capture_state(model, "Final State")
                 
                 return result
             except Exception as e:
                 # Capture error state if we found a model
                 if model:
-                    if live:
-                        # Estimate total steps based on test name
-                        estimated_steps = _estimate_test_steps(test_name)
-                        
-                        # Capture error state
-                        _capture_live_state(
-                            model, 
-                            "Error State", 
-                            0, 
-                            estimated_steps,
-                            {"error": str(e)}
-                        )
+                    # Estimate total steps based on test name
+                    estimated_steps = _estimate_test_steps(test_name)
                     
+                    # Capture error state
+                    _capture_live_state(
+                        model, 
+                        "Error State", 
+                        0, 
+                        estimated_steps,
+                        {"error": str(e)}
+                    )
+                    
+                    # Also track in visualizer for state management
                     visualizer.capture_state(
                         model, 
                         "Error State", 
@@ -112,9 +108,6 @@ def visualize_test(func=None, *, enabled=True, output_dir=None, live=True):
             finally:
                 # End tracking
                 visualizer.end_test()
-                
-                # Note: We don't need to end live visualization here anymore
-                # as it's handled by pytest hooks in conftest.py
         
         return wrapper
     
@@ -142,6 +135,11 @@ def capture_test_state(model: MorphModel, step_name: str,
         with capture_test_state(model, "After Memory Replay"):
             model._perform_memory_replay()
     """
+    if not live:
+        # If live visualization is disabled, just yield and return
+        yield
+        return
+        
     # Get visualizer
     vis = visualizer or get_default_visualizer()
     
@@ -154,11 +152,10 @@ def capture_test_state(model: MorphModel, step_name: str,
     # Get current step number
     step_number = len(vis.state_snapshots) if hasattr(vis, 'state_snapshots') else 0
     
-    # Capture state before with live visualization if enabled
-    if live:
-        _capture_live_state(model, f"{step_name} (Before)", step_number, estimated_steps, additional_data)
+    # Capture state before with live visualization
+    _capture_live_state(model, f"{step_name} (Before)", step_number, estimated_steps, additional_data)
     
-    # Capture state before
+    # Also track in visualizer for state management
     vis.capture_state(model, f"{step_name} (Before)", additional_data)
     
     try:
@@ -168,11 +165,10 @@ def capture_test_state(model: MorphModel, step_name: str,
         # Increment step number
         step_number = len(vis.state_snapshots) if hasattr(vis, 'state_snapshots') else 0
         
-        # Capture state after with live visualization if enabled
-        if live:
-            _capture_live_state(model, f"{step_name} (After)", step_number, estimated_steps, additional_data)
+        # Capture state after with live visualization
+        _capture_live_state(model, f"{step_name} (After)", step_number, estimated_steps, additional_data)
         
-        # Capture state after
+        # Also track in visualizer for state management
         vis.capture_state(model, f"{step_name} (After)", additional_data)
 
 
