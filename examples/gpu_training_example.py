@@ -6,6 +6,8 @@ import os
 import logging
 import argparse
 import time
+import gc
+import numpy as np
 
 # Set up logging
 logging.basicConfig(
@@ -18,13 +20,20 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.config import Config
-from src.core.model import Model
+from src.core.model import MorphModel
 from src.data.data import get_mnist_dataloaders
 from src.visualization.visualization import visualize_knowledge_graph, plot_expert_activations
-from src.utils.gpu_utils import detect_available_gpus, get_gpu_memory_info, setup_gpu_environment
+from src.utils.gpu_utils import (
+    detect_available_gpus, 
+    get_gpu_memory_info, 
+    setup_gpu_environment,
+    clear_gpu_cache,
+    monitor_gpu_memory,
+    get_optimal_worker_count
+)
 
 
-def train_epoch(model, train_loader, optimizer, criterion, epoch):
+def train_epoch(model, train_loader, optimizer, criterion, epoch, accumulation_steps=1):
     """
     Train the model for one epoch.
     """
@@ -40,7 +49,13 @@ def train_epoch(model, train_loader, optimizer, criterion, epoch):
         data = data.view(data.size(0), -1)
         
         # Forward pass with training=True to enable expert creation
-        metrics = model.train_step((data, target), optimizer, criterion)
+        metrics = model.train_step(
+            (data, target), 
+            optimizer, 
+            criterion, 
+            accumulation_steps=accumulation_steps,
+            current_step=batch_idx
+        )
         
         # Track statistics
         running_loss += metrics['loss']
@@ -48,10 +63,15 @@ def train_epoch(model, train_loader, optimizer, criterion, epoch):
         total += target.size(0)
         
         # Print progress
-        if batch_idx % 100 == 0:
+        if batch_idx % 50 == 0:
             logging.info(f'Epoch: {epoch} [{batch_idx * len(data)}/{len(train_loader.dataset)}] '
                   f'Loss: {metrics["loss"]:.6f} Acc: {metrics["accuracy"]:.2f}% '
                   f'Experts: {metrics["num_experts"]}')
+            
+            # Log GPU memory if available
+            if 'gpu_memory_allocated' in metrics:
+                logging.info(f'GPU Memory: {metrics["gpu_memory_allocated"]:.2f} GB allocated, '
+                           f'{metrics["gpu_memory_reserved"]:.2f} GB reserved')
     
     epoch_time = time.time() - start_time
     logging.info(f'Epoch {epoch} completed in {epoch_time:.2f} seconds')
@@ -59,16 +79,21 @@ def train_epoch(model, train_loader, optimizer, criterion, epoch):
     return running_loss / len(train_loader), 100. * correct / total
 
 
-def evaluate(model, test_loader, criterion):
+def evaluate(model, test_loader, criterion, use_mixed_precision=None):
     """
     Evaluate the model on the test set.
     """
     # Use model's evaluate method which handles device placement
-    metrics = model.evaluate(test_loader, criterion)
+    metrics = model.evaluate(test_loader, criterion, use_mixed_precision=use_mixed_precision)
     
     logging.info(f'Test set: Average loss: {metrics["loss"]:.4f}, '
           f'Accuracy: {metrics["accuracy"]:.2f}%, '
           f'Experts: {metrics["num_experts"]}')
+          
+    # Log GPU memory if available
+    if 'gpu_memory_allocated' in metrics:
+        logging.info(f'Evaluation GPU Memory: {metrics["gpu_memory_allocated"]:.2f} GB allocated, '
+                   f'{metrics["gpu_memory_reserved"]:.2f} GB reserved')
     
     return metrics["loss"], metrics["accuracy"]
 
@@ -83,14 +108,26 @@ def main():
                         help='Parallelization strategy for multi-GPU')
     parser.add_argument('--mixed-precision', action='store_true',
                         help='Enable mixed precision training')
-    parser.add_argument('--batch-size', type=int, default=64,
+    parser.add_argument('--precision-type', type=str, default='auto',
+                        choices=['auto', 'fp16', 'bf16'],
+                        help='Precision type for mixed precision training')
+    parser.add_argument('--batch-size', type=int, default=128,
                         help='Batch size for training')
     parser.add_argument('--auto-batch-size', action='store_true',
                         help='Automatically determine optimal batch size')
+    parser.add_argument('--accumulation-steps', type=int, default=1,
+                        help='Number of steps to accumulate gradients over')
     parser.add_argument('--epochs', type=int, default=5,
                         help='Number of epochs to train')
     parser.add_argument('--experts', type=int, default=8,
                         help='Number of initial experts')
+    parser.add_argument('--compile', action='store_true',
+                        help='Use torch.compile() for faster execution (PyTorch 2.0+)')
+    parser.add_argument('--compile-mode', type=str, default='default',
+                        choices=['default', 'reduce-overhead', 'max-autotune'],
+                        help='Compilation mode for torch.compile()')
+    parser.add_argument('--monitor-gpu', action='store_true',
+                        help='Enable GPU memory monitoring')
     args = parser.parse_args()
     
     # Create output directory for results
@@ -109,6 +146,16 @@ def main():
         memory_info = get_gpu_memory_info()
         for gpu_idx, info in memory_info.items():
             logging.info(f"GPU {gpu_idx}: {info['total']:.2f} GB total, {info['free']:.2f} GB free")
+            
+    # Start GPU memory monitoring if requested
+    if args.monitor_gpu and available_gpus:
+        monitor_gpu_memory(interval=10.0)
+    
+    # Calculate optimal worker count based on hardware
+    optimal_workers = get_optimal_worker_count(
+        batch_size=args.batch_size,
+        dataset_size=60000  # MNIST training set size
+    )
     
     # Configure the model with GPU settings
     config = Config(
@@ -134,15 +181,36 @@ def main():
         gpu_mode=args.gpu_mode,
         parallel_strategy=args.parallel_strategy,
         enable_mixed_precision=args.mixed_precision,
+        precision_type=args.precision_type,
         auto_batch_size=args.auto_batch_size,
         batch_size=args.batch_size,
         
         # Training settings
-        num_epochs=args.epochs
+        num_epochs=args.epochs,
+        
+        # DataLoader settings
+        num_workers=optimal_workers,
+        pin_memory=True if torch.cuda.is_available() else False,
+        
+        # Gradient accumulation
+        accumulation_steps=args.accumulation_steps
     )
     
     # Create model
-    model = Model(config)
+    model = MorphModel(config)
+    
+    # Compile model if requested and supported
+    if args.compile and hasattr(torch, 'compile'):
+        logging.info(f"Compiling model with mode: {args.compile_mode}")
+        success = model.compile_model(
+            mode=args.compile_mode,
+            compile_experts=True,
+            compile_gating=True
+        )
+        if success:
+            logging.info("Model compilation successful")
+        else:
+            logging.warning("Model compilation failed or not supported")
     
     # Log GPU configuration
     logging.info(f"GPU Mode: {config.gpu_mode}")
@@ -150,8 +218,12 @@ def main():
     logging.info(f"Primary Device: {config.device}")
     logging.info(f"Parallel Strategy: {config.parallel_strategy}")
     logging.info(f"Mixed Precision: {config.enable_mixed_precision}")
+    if config.enable_mixed_precision:
+        logging.info(f"Precision Type: {getattr(model, 'precision_type', 'unknown')}")
     logging.info(f"Auto Batch Size: {config.auto_batch_size}")
     logging.info(f"Batch Size: {config.batch_size}")
+    logging.info(f"Gradient Accumulation Steps: {args.accumulation_steps}")
+    logging.info(f"DataLoader Workers: {optimal_workers}")
     
     # Setup loss function and optimizer
     criterion = nn.CrossEntropyLoss()
@@ -164,7 +236,7 @@ def main():
     # Get data loaders
     train_loader, test_loader = get_mnist_dataloaders(
         batch_size=config.batch_size,
-        num_workers=config.num_workers,
+        num_workers=optimal_workers,
         pin_memory=config.pin_memory
     )
     
@@ -175,6 +247,12 @@ def main():
     test_accs = []
     epoch_times = []
     
+    # Clear GPU cache before training
+    if torch.cuda.is_available():
+        clear_gpu_cache()
+        # Run garbage collection to free memory
+        gc.collect()
+    
     # Training loop
     total_start_time = time.time()
     
@@ -182,12 +260,24 @@ def main():
         epoch_start_time = time.time()
         
         # Train
-        train_loss, train_acc = train_epoch(model, train_loader, optimizer, criterion, epoch)
+        train_loss, train_acc = train_epoch(
+            model, 
+            train_loader, 
+            optimizer, 
+            criterion, 
+            epoch,
+            accumulation_steps=args.accumulation_steps
+        )
         train_losses.append(train_loss)
         train_accs.append(train_acc)
         
         # Test
-        test_loss, test_acc = evaluate(model, test_loader, criterion)
+        test_loss, test_acc = evaluate(
+            model, 
+            test_loader, 
+            criterion,
+            use_mixed_precision=config.enable_mixed_precision
+        )
         test_losses.append(test_loss)
         test_accs.append(test_acc)
         
@@ -204,6 +294,10 @@ def main():
             model, 
             output_path=f"results/gpu_training/knowledge_graph_epoch_{epoch}.png"
         )
+        
+        # Clear GPU cache between epochs
+        if torch.cuda.is_available():
+            clear_gpu_cache()
     
     total_time = time.time() - total_start_time
     logging.info(f"Training completed in {total_time:.2f} seconds")
@@ -274,6 +368,12 @@ def main():
         for device, count in device_counts.items():
             logging.info(f"  {device}: {count} experts")
     
+    # Get compilation status if applicable
+    compilation_status = {}
+    if hasattr(model, 'get_compilation_status'):
+        compilation_status = model.get_compilation_status()
+        logging.info(f"Compilation status: {compilation_status}")
+    
     # Save performance summary
     with open("results/gpu_training/performance_summary.txt", "w") as f:
         f.write(f"GPU Training Performance Summary\n")
@@ -282,7 +382,11 @@ def main():
         f.write(f"Devices: {[str(d) for d in config.devices]}\n")
         f.write(f"Parallel Strategy: {config.parallel_strategy}\n")
         f.write(f"Mixed Precision: {config.enable_mixed_precision}\n")
-        f.write(f"Batch Size: {config.batch_size}\n\n")
+        if config.enable_mixed_precision:
+            f.write(f"Precision Type: {getattr(model, 'precision_type', 'unknown')}\n")
+        f.write(f"Batch Size: {config.batch_size}\n")
+        f.write(f"Gradient Accumulation Steps: {args.accumulation_steps}\n")
+        f.write(f"Effective Batch Size: {config.batch_size * args.accumulation_steps}\n\n")
         
         f.write(f"Initial experts: {config.num_initial_experts}\n")
         f.write(f"Final experts: {len(model.experts)}\n\n")
@@ -290,7 +394,13 @@ def main():
         f.write(f"Training time: {total_time:.2f} seconds\n")
         f.write(f"Average epoch time: {sum(epoch_times)/len(epoch_times):.2f} seconds\n\n")
         
-        f.write(f"Final model accuracy: {test_acc:.2f}%\n")
+        f.write(f"Final model accuracy: {test_acc:.2f}%\n\n")
+        
+        # Add compilation info if available
+        if compilation_status:
+            f.write(f"Compilation Information:\n")
+            for key, value in compilation_status.items():
+                f.write(f"  {key}: {value}\n")
     
     # Save model
     torch.save(model.state_dict(), "results/gpu_training/model.pt")

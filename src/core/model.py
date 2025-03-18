@@ -5,6 +5,10 @@ This module provides a thin interface to the MORPH model components,
 which are implemented in separate modules for better organization and maintainability.
 """
 
+import torch
+import logging
+from typing import Optional, Literal, Dict, Any, Union, List
+
 from src.core.model_components.model_base import ModelBase
 from src.core.model_components.model_forward import ModelForward
 from src.core.model_components.model_initialization import ModelInitialization
@@ -42,6 +46,10 @@ class MorphModel(ModelBase, ModelForward, ModelInitialization,
         ModelInitialization.__init__(self, config)
         ModelDevice.__init__(self)
         ModelMixedPrecision.__init__(self)
+        
+        # Compilation status
+        self.is_compiled = False
+        self.compilation_mode = None
         
     def forward(self, x, training=True):
         """
@@ -183,3 +191,103 @@ class MorphModel(ModelBase, ModelForward, ModelInitialization,
         """
         from src.core.training import evaluate
         return evaluate(self, data_loader, criterion, device)
+    
+    def compile_model(self, mode: str = 'default', 
+                     compile_experts: bool = True, 
+                     compile_gating: bool = True,
+                     fullgraph: bool = False,
+                     dynamic: bool = True) -> bool:
+        """
+        Compile the model using torch.compile() for faster execution on GPU.
+        
+        This requires PyTorch 2.0 or newer. For older versions, this is a no-op.
+        
+        Args:
+            mode: Compilation mode:
+                - 'default': Balance between compilation time and runtime performance
+                - 'reduce-overhead': Minimize runtime overhead (faster execution)
+                - 'max-autotune': Maximize performance through autotuning (slower compilation)
+            compile_experts: Whether to compile expert models
+            compile_gating: Whether to compile the gating network
+            fullgraph: Whether to use full graph mode (less dynamic but faster)
+            dynamic: Whether to allow dynamic shapes
+            
+        Returns:
+            True if compilation was successful, False otherwise
+        """
+        # Check if PyTorch version supports torch.compile
+        if not hasattr(torch, 'compile'):
+            logging.warning("PyTorch version does not support torch.compile(). Skipping compilation.")
+            return False
+        
+        try:
+            compilation_count = 0
+            
+            # Compile experts
+            if compile_experts and hasattr(self, 'experts'):
+                for i, expert in enumerate(self.experts):
+                    if hasattr(expert, 'weight'):  # Only compile modules with parameters
+                        try:
+                            self.experts[i] = torch.compile(
+                                expert, 
+                                mode=mode,
+                                fullgraph=fullgraph,
+                                dynamic=dynamic
+                            )
+                            compilation_count += 1
+                        except Exception as e:
+                            logging.warning(f"Failed to compile expert {i}: {e}")
+            
+            # Compile gating network
+            if compile_gating and hasattr(self, 'gating') and self.gating is not None:
+                try:
+                    self.gating = torch.compile(
+                        self.gating, 
+                        mode=mode,
+                        fullgraph=fullgraph,
+                        dynamic=dynamic
+                    )
+                    compilation_count += 1
+                except Exception as e:
+                    logging.warning(f"Failed to compile gating network: {e}")
+            
+            # Mark model as compiled if any components were compiled
+            if compilation_count > 0:
+                self.is_compiled = True
+                self.compilation_mode = mode
+                logging.info(f"Model compiled with mode '{mode}': {compilation_count} components compiled")
+                return True
+            else:
+                logging.warning("No components were compiled")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Failed to compile model: {e}")
+            self.is_compiled = False
+            return False
+    
+    def get_compilation_status(self) -> Dict[str, Any]:
+        """
+        Get the compilation status of the model.
+        
+        Returns:
+            Dictionary with compilation status information
+        """
+        status = {
+            'is_compiled': getattr(self, 'is_compiled', False),
+            'compilation_mode': getattr(self, 'compilation_mode', None),
+            'pytorch_version': torch.__version__,
+            'has_compile': hasattr(torch, 'compile'),
+        }
+        
+        # Add CUDA compilation info if available
+        if torch.cuda.is_available():
+            status['cuda_version'] = torch.version.cuda
+            
+            # Check if we're using CUDA graphs
+            if hasattr(torch.cuda, 'is_current_stream_capturing'):
+                status['using_cuda_graphs'] = torch.cuda.is_current_stream_capturing()
+            else:
+                status['using_cuda_graphs'] = False
+        
+        return status

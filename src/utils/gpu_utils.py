@@ -2,7 +2,46 @@ import torch
 import logging
 import os
 import numpy as np
-from typing import Tuple, List, Dict, Optional, Union
+import time
+import gc
+from typing import Tuple, List, Dict, Optional, Union, Callable
+
+
+def clear_gpu_cache(device_indices: Optional[List[int]] = None) -> bool:
+    """
+    Clear GPU cache to free up memory.
+    
+    Args:
+        device_indices: List of GPU indices to clear cache for.
+                       If None, clears cache for all available GPUs.
+    
+    Returns:
+        True if cache was cleared, False otherwise
+    """
+    if not torch.cuda.is_available():
+        return False
+    
+    try:
+        if device_indices is None:
+            # Clear cache for all GPUs
+            torch.cuda.empty_cache()
+            return True
+        else:
+            # Clear cache for specific GPUs
+            for idx in device_indices:
+                if idx < torch.cuda.device_count():
+                    # Store current device
+                    current_device = torch.cuda.current_device()
+                    # Set device to clear
+                    torch.cuda.set_device(idx)
+                    # Clear cache
+                    torch.cuda.empty_cache()
+                    # Restore device
+                    torch.cuda.set_device(current_device)
+            return True
+    except Exception as e:
+        logging.warning(f"Failed to clear GPU cache: {e}")
+        return False
 
 
 def detect_available_gpus() -> List[int]:
@@ -235,15 +274,49 @@ def setup_gpu_environment() -> None:
     # Set reasonable memory fraction
     set_gpu_memory_fraction(0.9)
     
+    # Clear GPU cache to start with clean memory
+    clear_gpu_cache()
+    
+    # Run garbage collection to free memory
+    gc.collect()
+    
     # Log GPU information
     for i in range(torch.cuda.device_count()):
         props = torch.cuda.get_device_properties(i)
         logging.info(f"GPU {i}: {props.name} with {props.total_memory / (1024**3):.2f} GB memory")
+        
+        # Log compute capability
+        logging.info(f"  Compute capability: {props.major}.{props.minor}")
+        
+        # Log memory bandwidth (estimate) - skipping as memory_clock_rate is not available in all PyTorch versions
+        try:
+            if hasattr(props, 'memory_clock_rate'):
+                memory_clock = props.memory_clock_rate / (10**6)  # MHz
+                bus_width = props.memory_bus_width
+                bandwidth = 2 * memory_clock * (bus_width / 8) / 1000  # GB/s
+                logging.info(f"  Memory bandwidth: ~{bandwidth:.1f} GB/s")
+        except Exception as e:
+            logging.debug(f"Could not estimate memory bandwidth: {e}")
+        
+        # Log CUDA cores (estimate based on compute capability)
+        if props.major >= 8:  # Ampere or newer
+            cores_per_sm = 128
+        elif props.major == 7:  # Volta/Turing
+            cores_per_sm = 64
+        else:  # Pascal or older
+            cores_per_sm = 128
+        cuda_cores = props.multi_processor_count * cores_per_sm
+        logging.info(f"  CUDA cores: ~{cuda_cores}")
 
 
-def get_optimal_worker_count() -> int:
+def get_optimal_worker_count(batch_size: Optional[int] = None, dataset_size: Optional[int] = None) -> int:
     """
-    Get the optimal number of worker processes for data loading.
+    Get the optimal number of worker processes for data loading based on
+    hardware and data characteristics.
+    
+    Args:
+        batch_size: Size of each batch
+        dataset_size: Total dataset size
     
     Returns:
         Recommended number of worker processes
@@ -253,13 +326,137 @@ def get_optimal_worker_count() -> int:
         import multiprocessing
         cpu_count = multiprocessing.cpu_count()
         
-        # Typically 4 workers per GPU is a good starting point
-        gpu_count = max(1, torch.cuda.device_count() if torch.cuda.is_available() else 0)
+        # GPU-specific optimization
+        if torch.cuda.is_available():
+            gpu_count = torch.cuda.device_count()
+            
+            # Base workers on GPU:CPU ratio and GPU compute capability
+            total_compute_units = 0
+            for i in range(gpu_count):
+                props = torch.cuda.get_device_properties(i)
+                # Use multiprocessor count as a proxy for GPU power
+                total_compute_units += props.multi_processor_count
+            
+            # Calculate optimal workers (more powerful GPUs need more workers)
+            # Use a heuristic scaling factor based on empirical testing
+            worker_ratio = min(1.0, total_compute_units / (cpu_count * 24))
+            workers = max(1, int(cpu_count * worker_ratio))
+            
+            # Adjust based on batch size and dataset size if provided
+            if batch_size and dataset_size:
+                # Fewer workers for small datasets or large batches
+                dataset_factor = min(1.0, dataset_size / (batch_size * 1000))
+                workers = max(1, int(workers * dataset_factor))
+        else:
+            # CPU-only mode - use half of CPU cores for workers
+            workers = max(1, cpu_count // 2)
         
-        # Calculate workers, but cap at CPU count
-        workers = min(4 * gpu_count, cpu_count)
+        # Cap at CPU count - 1 to leave a core for the main process
+        workers = min(workers, max(1, cpu_count - 1))
         
-        return max(1, workers)
-    except:
+        logging.info(f"Using {workers} dataloader workers")
+        return workers
+    except Exception as e:
+        logging.warning(f"Failed to determine optimal worker count: {e}")
         # Default fallback
         return 4
+
+
+def monitor_gpu_memory(interval: float = 5.0, callback: Optional[Callable] = None) -> None:
+    """
+    Start a background thread to monitor GPU memory usage.
+    
+    Args:
+        interval: Monitoring interval in seconds
+        callback: Optional callback function to call with memory info
+    """
+    if not torch.cuda.is_available():
+        logging.warning("No CUDA-capable GPUs detected, memory monitoring disabled")
+        return
+    
+    import threading
+    
+    def _monitor_thread():
+        while True:
+            try:
+                memory_info = get_gpu_memory_info()
+                
+                # Log memory usage
+                for gpu_idx, info in memory_info.items():
+                    usage_percent = (info['used'] / info['total']) * 100
+                    logging.info(f"GPU {gpu_idx}: {info['used']:.2f}/{info['total']:.2f} GB "
+                                f"({usage_percent:.1f}% used, {info['free']:.2f} GB free)")
+                
+                # Call callback if provided
+                if callback:
+                    callback(memory_info)
+                
+                # Sleep for the specified interval
+                time.sleep(interval)
+            except Exception as e:
+                logging.error(f"Error in GPU memory monitoring: {e}")
+                break
+    
+    # Start monitoring thread
+    monitor_thread = threading.Thread(target=_monitor_thread, daemon=True)
+    monitor_thread.start()
+    logging.info(f"Started GPU memory monitoring (interval: {interval}s)")
+
+
+def optimize_tensor_memory(tensor: torch.Tensor) -> torch.Tensor:
+    """
+    Optimize a tensor for memory efficiency.
+    
+    Args:
+        tensor: Input tensor
+        
+    Returns:
+        Memory-optimized tensor
+    """
+    # Contiguous tensors are more memory-efficient
+    if not tensor.is_contiguous():
+        tensor = tensor.contiguous()
+    
+    return tensor
+
+
+def gradient_accumulation_step(
+    loss: torch.Tensor,
+    optimizer: torch.optim.Optimizer,
+    scaler: Optional[torch.cuda.amp.GradScaler],
+    accumulation_steps: int,
+    current_step: int,
+    retain_graph: bool = False
+) -> None:
+    """
+    Perform a gradient accumulation step.
+    
+    Args:
+        loss: Loss tensor
+        optimizer: Optimizer
+        scaler: Optional gradient scaler for mixed precision
+        accumulation_steps: Number of steps to accumulate gradients over
+        current_step: Current step index
+        retain_graph: Whether to retain computation graph
+    """
+    # Scale loss by accumulation steps
+    scaled_loss = loss / accumulation_steps
+    
+    # Backward pass
+    if scaler is not None:
+        # Mixed precision path
+        scaler.scale(scaled_loss).backward(retain_graph=retain_graph)
+        
+        # Only step optimizer and update scaler after accumulation
+        if (current_step + 1) % accumulation_steps == 0:
+            scaler.step(optimizer)
+            scaler.update()
+            optimizer.zero_grad()
+    else:
+        # Standard precision path
+        scaled_loss.backward(retain_graph=retain_graph)
+        
+        # Only step optimizer after accumulation
+        if (current_step + 1) % accumulation_steps == 0:
+            optimizer.step()
+            optimizer.zero_grad()

@@ -1,11 +1,13 @@
 import torch
 import pytest
 from src.core.gating import GatingNetwork
+from src.utils.gpu_utils import get_optimal_worker_count
 
 
-def test_gating_initialization():
+def test_gating_initialization(optimized_test_config):
     """Test that a gating network initializes correctly."""
-    gating = GatingNetwork(input_size=10, num_experts=4, k=2)
+    config = optimized_test_config
+    gating = GatingNetwork(input_size=config.input_size, num_experts=config.num_initial_experts, k=2)
     
     # Check attributes
     assert gating.input_size == 10
@@ -19,23 +21,31 @@ def test_gating_initialization():
     assert gating.router[-1].out_features == 4
 
 
-def test_gating_forward():
+def test_gating_forward(optimized_test_config):
     """Test that a gating network forward pass works correctly."""
-    gating = GatingNetwork(input_size=10, num_experts=4, k=2)
+    config = optimized_test_config
+    # Use GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gating = GatingNetwork(input_size=config.input_size, num_experts=config.num_initial_experts, k=2).to(device)
     
-    # Create a batch of inputs
-    inputs = torch.randn(32, 10)
+    # Create a batch of inputs on the appropriate device
+    inputs = torch.randn(16, config.input_size, device=device)  # Smaller batch size
     
     # Forward pass
     routing_weights, expert_indices, uncertainty = gating(inputs, training=True)
     
     # Check output shapes
-    assert routing_weights.shape == (32, 2)  # [batch_size, k]
-    assert expert_indices.shape == (32, 2)  # [batch_size, k]
+    assert routing_weights.shape == (16, 2)  # [batch_size, k]
+    assert expert_indices.shape == (16, 2)  # [batch_size, k]
     assert uncertainty.dim() == 0  # scalar
     
+    # Check device consistency
+    assert routing_weights.device == device
+    assert expert_indices.device == device
+    assert uncertainty.device == device
+    
     # Check routing weights sum to 1
-    assert torch.allclose(routing_weights.sum(dim=1), torch.ones(32), atol=1e-6)
+    assert torch.allclose(routing_weights.sum(dim=1), torch.ones(16, device=device), atol=1e-6)
     
     # Check expert indices are in valid range
     assert torch.all(expert_indices >= 0)
@@ -45,21 +55,28 @@ def test_gating_forward():
     assert 0 <= uncertainty.item() <= 1
 
 
-def test_noisy_routing():
+def test_noisy_routing(optimized_test_config):
     """Test that noisy routing adds noise during training."""
-    gating = GatingNetwork(input_size=10, num_experts=4, k=2, routing_type="noisy_top_k")
+    config = optimized_test_config
+    # Use GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gating = GatingNetwork(input_size=config.input_size, num_experts=config.num_initial_experts, k=2, routing_type="noisy_top_k").to(device)
     
-    # Create a batch of inputs
-    inputs = torch.randn(32, 10)
+    # Create a batch of inputs on the appropriate device
+    inputs = torch.randn(16, config.input_size, device=device)  # Smaller batch size
     
     # Set random seed for reproducibility
     torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(42)
     
     # Forward pass with training=True
     routing_weights1, expert_indices1, _ = gating(inputs, training=True)
     
     # Set the same seed again
     torch.manual_seed(42)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(42)
     
     # Forward pass with training=False
     routing_weights2, expert_indices2, _ = gating(inputs, training=False)
@@ -68,9 +85,10 @@ def test_noisy_routing():
     assert not torch.allclose(routing_weights1, routing_weights2)
 
 
-def test_should_create_new_expert():
+def test_should_create_new_expert(optimized_test_config):
     """Test the expert creation decision logic."""
-    gating = GatingNetwork(input_size=10, num_experts=4)
+    config = optimized_test_config
+    gating = GatingNetwork(input_size=config.input_size, num_experts=config.num_initial_experts)
     gating.uncertainty_threshold = 0.5
     
     # Uncertainty below threshold
@@ -83,9 +101,12 @@ def test_should_create_new_expert():
     assert gating.should_create_new_expert(0.6)
 
 
-def test_update_num_experts():
+def test_update_num_experts(optimized_test_config):
     """Test updating the gating network for more experts."""
-    gating = GatingNetwork(input_size=10, num_experts=4, k=2)
+    config = optimized_test_config
+    # Use GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    gating = GatingNetwork(input_size=config.input_size, num_experts=config.num_initial_experts, k=2).to(device)
     
     # Update to more experts
     gating.update_num_experts(6)
@@ -98,8 +119,12 @@ def test_update_num_experts():
     assert gating.router[-1].out_features == 6
     
     # Check we can still do a forward pass
-    inputs = torch.randn(32, 10)
+    inputs = torch.randn(16, config.input_size, device=device)  # Smaller batch size
     routing_weights, expert_indices, uncertainty = gating(inputs)
+    
+    # Check device consistency
+    assert routing_weights.device == device
+    assert expert_indices.device == device
     
     # Expert indices should be in the new range
     assert torch.all(expert_indices >= 0)

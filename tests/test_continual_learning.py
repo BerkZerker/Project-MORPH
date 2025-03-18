@@ -4,6 +4,7 @@ from torch.utils.data import DataLoader
 from src.config import MorphConfig
 from src.core.model import MorphModel
 from src.utils.data import ContinualTaskDataset
+from src.utils.gpu_utils import get_optimal_worker_count
 
 
 class TestDataset(torch.utils.data.Dataset):
@@ -194,7 +195,7 @@ def test_morph_with_continual_learning():
         enable_mixed_precision=torch.cuda.is_available(),  # Enable mixed precision if CUDA available
         
         # Data loading optimization
-        num_workers=2,
+        num_workers=get_optimal_worker_count(),
         pin_memory=torch.cuda.is_available(),
         
         # Test-specific optimizations
@@ -380,7 +381,7 @@ def test_expert_specialization_for_tasks():
         enable_mixed_precision=torch.cuda.is_available(),
         
         # Data loading optimization
-        num_workers=2,
+        num_workers=get_optimal_worker_count(),
         pin_memory=torch.cuda.is_available(),
         
         # Test-specific optimizations
@@ -583,7 +584,7 @@ def test_catastrophic_forgetting_reduction():
         enable_mixed_precision=torch.cuda.is_available(),
         
         # Data loading optimization
-        num_workers=2,
+        num_workers=get_optimal_worker_count(),
         pin_memory=torch.cuda.is_available(),
         
         # Test-specific optimizations

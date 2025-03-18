@@ -4,12 +4,13 @@ import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
 from src.utils.testing.decorators import visualize_test, capture_test_state
+from src.utils.gpu_utils import get_optimal_worker_count
 
 
 @visualize_test
-def test_knowledge_graph_initialization():
+def test_knowledge_graph_initialization(optimized_test_config):
     """Test that knowledge graph initializes correctly."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Check graph is initialized
@@ -26,9 +27,9 @@ def test_knowledge_graph_initialization():
     
 
 @visualize_test
-def test_add_expert():
+def test_add_expert(optimized_test_config):
     """Test adding an expert to the knowledge graph."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add an expert with visualization
@@ -52,9 +53,9 @@ def test_add_expert():
 
 
 @visualize_test
-def test_add_edge():
+def test_add_edge(optimized_test_config):
     """Test adding edges between experts in the knowledge graph."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add two experts
@@ -83,9 +84,9 @@ def test_add_edge():
 
 
 @visualize_test
-def test_update_expert_activation():
+def test_update_expert_activation(optimized_test_config):
     """Test updating expert activation information."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add an expert
@@ -109,9 +110,9 @@ def test_update_expert_activation():
     
 
 @visualize_test
-def test_update_expert_specialization():
+def test_update_expert_specialization(optimized_test_config):
     """Test updating expert specialization and adaptation rate."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add an expert
@@ -130,13 +131,16 @@ def test_update_expert_specialization():
     
 
 @visualize_test
-def test_add_concept():
+def test_add_concept(optimized_test_config):
     """Test adding concepts to the knowledge graph."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
+    # Use GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
     # Add a concept with visualization
-    embedding = torch.randn(10)
+    embedding = torch.randn(10, device=device)
     with capture_test_state(kg, "Add Concept"):
         kg.add_concept("concept1", embedding)
     
@@ -146,7 +150,7 @@ def test_add_concept():
     assert "concept1" in kg.concept_hierarchy.nodes
     
     # Add a child concept
-    child_embedding = torch.randn(10)
+    child_embedding = torch.randn(10, device=device)
     kg.add_concept("concept1.1", child_embedding, parent_concept="concept1")
     
     # Check parent-child relationship
@@ -154,14 +158,17 @@ def test_add_concept():
 
 
 @visualize_test
-def test_link_expert_to_concept():
+def test_link_expert_to_concept(optimized_test_config):
     """Test linking experts to concepts."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
+    
+    # Use GPU if available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # Add expert and concept
     kg.add_expert(0)
-    embedding = torch.randn(10)
+    embedding = torch.randn(10, device=device)
     kg.add_concept("concept1", embedding)
     
     # Link expert to concept with visualization
@@ -176,9 +183,9 @@ def test_link_expert_to_concept():
     
 
 @visualize_test
-def test_get_similar_experts():
+def test_get_similar_experts(optimized_test_config):
     """Test finding similar experts in the knowledge graph."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add several experts
@@ -208,12 +215,12 @@ def test_get_similar_experts():
 
 
 @visualize_test
-def test_decay_edges():
+def test_decay_edges(optimized_test_config):
     """Test edge decay functionality."""
-    config = MorphConfig(
-        knowledge_edge_decay=0.5,  # Aggressive decay for testing
-        knowledge_edge_min=0.2
-    )
+    config = optimized_test_config
+    # Set specific decay parameters for testing
+    config.knowledge_edge_decay = 0.5  # Aggressive decay for testing
+    config.knowledge_edge_min = 0.2
     kg = KnowledgeGraph(config)
     
     # Add experts and edges
@@ -237,9 +244,9 @@ def test_decay_edges():
     
 
 @visualize_test
-def test_prune_isolated_experts():
+def test_prune_isolated_experts(optimized_test_config):
     """Test identifying isolated experts in the knowledge graph."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add several experts
@@ -261,9 +268,9 @@ def test_prune_isolated_experts():
 
 
 @visualize_test
-def test_get_dormant_experts():
+def test_get_dormant_experts(optimized_test_config):
     """Test identifying dormant experts."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add experts with different activation patterns
@@ -301,9 +308,9 @@ def test_get_dormant_experts():
     
 
 @visualize_test
-def test_merge_expert_connections():
+def test_merge_expert_connections(optimized_test_config):
     """Test merging expert connections when removing an expert."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add experts
@@ -340,9 +347,9 @@ def test_merge_expert_connections():
     
 
 @visualize_test
-def test_rebuild_graph():
+def test_rebuild_graph(optimized_test_config):
     """Test rebuilding the knowledge graph after expert count changes."""
-    config = MorphConfig()
+    config = optimized_test_config
     kg = KnowledgeGraph(config)
     
     # Add experts

@@ -3,6 +3,7 @@ import pytest
 import networkx as nx
 from src.core.model import MorphModel
 from src.config import MorphConfig
+from src.utils.gpu_utils import get_optimal_worker_count
 
 
 class TestExpertMerging:
@@ -23,13 +24,23 @@ class TestExpertMerging:
         config.sleep_cycle_frequency = 500
         config.expert_similarity_threshold = 0.8
         config.min_experts = 2
+        
+        # Use GPU if available, otherwise CPU
+        config.device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Enable mixed precision if CUDA is available
+        config.enable_mixed_precision = torch.cuda.is_available()
+        # Optimize data loading
+        config.num_workers = get_optimal_worker_count()
+        config.pin_memory = torch.cuda.is_available()
+        
         return config
     
     @pytest.fixture
     def model(self, model_config):
         model = MorphModel(model_config)
         # Process a batch to initialize
-        batch = torch.randn(10, model_config.input_size)
+        device = torch.device(model_config.device)
+        batch = torch.randn(10, model_config.input_size, device=device)
         model(batch, training=True)
         return model
     
@@ -153,9 +164,12 @@ class TestExpertMerging:
         """Test the full dynamic expert lifecycle with merging and pruning."""
         initial_expert_count = len(model.experts)
         
+        # Get the device from the model
+        device = model.device
+        
         # Process batches to trigger expert creation
         for i in range(10):
-            batch = torch.randn(10, model_config.input_size)
+            batch = torch.randn(10, model_config.input_size, device=device)
             model(batch, training=True)
             
         # Force similar experts to trigger merging
@@ -168,7 +182,7 @@ class TestExpertMerging:
                 
         # Process more batches to trigger sleep
         for i in range(model_config.sleep_cycle_frequency):
-            batch = torch.randn(10, model_config.input_size)
+            batch = torch.randn(10, model_config.input_size, device=device)
             model(batch, training=True)
             
         # Check that experts were dynamically managed
