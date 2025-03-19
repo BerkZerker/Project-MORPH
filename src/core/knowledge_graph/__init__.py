@@ -8,12 +8,11 @@ concept specialization, and expert similarities.
 from src.core.knowledge_graph.graph_base import GraphBase
 from src.core.knowledge_graph.graph_operations import GraphOperations
 from src.core.knowledge_graph.graph_analysis import GraphAnalysis
-from src.core.knowledge_graph.graph_visualization import GraphVisualization
 from src.core.knowledge_graph.graph_serialization import GraphSerialization
 
 
 class KnowledgeGraph(GraphBase, GraphOperations, GraphAnalysis, 
-                    GraphVisualization, GraphSerialization):
+                    GraphSerialization):
     """
     Knowledge Graph for MORPH model.
     
@@ -36,7 +35,6 @@ __all__ = [
     'GraphBase',
     'GraphOperations',
     'GraphAnalysis',
-    'GraphVisualization',
     'GraphSerialization',
     'KnowledgeGraph'
 ]
