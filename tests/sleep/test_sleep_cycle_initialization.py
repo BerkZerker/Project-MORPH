@@ -2,11 +2,11 @@ import torch
 import pytest
 from src.config import MorphConfig
 from src.core.model import MorphModel
-from src.utils.testing.decorators import visualize_test, capture_test_state
+
 from src.utils.gpu_utils import get_optimal_worker_count
 
 
-@visualize_test
+
 def test_sleep_cycle_initialization():
     """Test that sleep cycle metrics are properly initialized."""
     config = MorphConfig(

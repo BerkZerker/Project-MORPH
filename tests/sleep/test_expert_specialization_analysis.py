@@ -2,11 +2,11 @@ import torch
 import pytest
 from src.config import MorphConfig
 from src.core.model import MorphModel
-from src.utils.testing.decorators import visualize_test, capture_test_state
+
 from src.utils.gpu_utils import get_optimal_worker_count
 
 
-@visualize_test
+
 def test_expert_specialization_analysis():
     """Test expert specialization analysis."""
     config = MorphConfig(
@@ -36,9 +36,8 @@ def test_expert_specialization_analysis():
     # Expert 2: Moderately specialized
     model.expert_input_distributions[2] = {f"feature_{i}": 10 for i in range(5)}
     
-    # Analyze specialization with visualization
-    with capture_test_state(model, "Expert Specialization Analysis"):
-        metrics = model._analyze_expert_specialization()
+    # Analyze specialization
+    metrics = model._analyze_expert_specialization()
     
     # Check the results
     assert 0 in metrics and 1 in metrics and 2 in metrics

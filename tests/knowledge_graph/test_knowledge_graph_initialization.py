@@ -3,10 +3,10 @@ import pytest
 import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_knowledge_graph_initialization():
     """Test that knowledge graph initializes correctly."""
     config = MorphConfig()

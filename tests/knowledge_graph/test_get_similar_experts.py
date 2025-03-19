@@ -3,10 +3,10 @@ import pytest
 import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_get_similar_experts():
     """Test finding similar experts in the knowledge graph."""
     config = MorphConfig()
@@ -22,9 +22,8 @@ def test_get_similar_experts():
     kg.add_edge(0, 3, weight=0.8, relation_type='similarity')
     kg.add_edge(0, 4, weight=0.5, relation_type='similarity')
     
-    # Find similar experts with high threshold and visualization
-    with capture_test_state(kg, "Get Similar Experts"):
-        similar = kg.get_similar_experts(0, threshold=0.7)
+    # Find similar experts with high threshold
+    similar = kg.get_similar_experts(0, threshold=0.7)
     
     # Should return experts 1 and 3
     assert len(similar) == 2

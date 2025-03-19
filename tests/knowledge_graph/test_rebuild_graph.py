@@ -3,10 +3,10 @@ import pytest
 import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_rebuild_graph():
     """Test rebuilding the knowledge graph after expert count changes."""
     config = MorphConfig()
@@ -26,9 +26,8 @@ def test_rebuild_graph():
     original_node_count = len(kg.graph.nodes)
     original_edge_count = len(kg.graph.edges)
     
-    # Rebuild with fewer experts (removing expert 3) with visualization
-    with capture_test_state(kg, "Rebuild Graph"):
-        kg.rebuild_graph(expert_count=3)
+    # Rebuild with fewer experts (removing expert 3)
+    kg.rebuild_graph(expert_count=3)
     
     # Check node count changed
     assert len(kg.graph.nodes) == 3

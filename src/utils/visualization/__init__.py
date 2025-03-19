@@ -1,18 +1,28 @@
 """
-Visualization utilities for MORPH models.
+Stub implementation of visualization utilities for MORPH models.
 
-This package provides tools for visualizing various aspects of MORPH models,
-including knowledge graphs, expert activations, and training metrics.
+This package provides empty implementations of the visualization utilities
+to maintain backward compatibility with existing code.
 """
 
-from src.utils.visualization.knowledge_graph import visualize_knowledge_graph
-from src.utils.visualization.expert_activation import (
-    plot_expert_activations,
-    visualize_expert_lifecycle,
-    visualize_expert_specialization_over_time
-)
-from src.utils.visualization.performance_plots import visualize_concept_drift_adaptation
-from src.utils.visualization.training_progress import visualize_sleep_metrics
+# Define empty functions to maintain backward compatibility
+def visualize_knowledge_graph(*args, **kwargs):
+    pass
+
+def plot_expert_activations(*args, **kwargs):
+    pass
+
+def visualize_expert_lifecycle(*args, **kwargs):
+    pass
+
+def visualize_expert_specialization_over_time(*args, **kwargs):
+    pass
+
+def visualize_concept_drift_adaptation(*args, **kwargs):
+    pass
+
+def visualize_sleep_metrics(*args, **kwargs):
+    pass
 
 __all__ = [
     'visualize_knowledge_graph',

@@ -1,9 +1,9 @@
 import torch
 from src.core.expert import Expert
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_expert_initialization():
     """Test that an expert initializes correctly."""
     expert = Expert(input_size=10, hidden_size=20, output_size=5)

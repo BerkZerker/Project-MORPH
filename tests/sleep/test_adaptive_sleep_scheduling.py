@@ -2,11 +2,11 @@ import torch
 import pytest
 from src.config import MorphConfig
 from src.core.model import MorphModel
-from src.utils.testing.decorators import visualize_test, capture_test_state
+
 from src.utils.gpu_utils import get_optimal_worker_count
 
 
-@visualize_test
+
 def test_adaptive_sleep_scheduling():
     """Test adaptive sleep scheduling."""
     config = MorphConfig(
@@ -37,9 +37,8 @@ def test_adaptive_sleep_scheduling():
     initial_frequency = model.adaptive_sleep_frequency
     initial_next_step = model.next_sleep_step
     
-    # Update the sleep schedule with visualization
-    with capture_test_state(model, "Sleep Schedule Update"):
-        model._update_sleep_schedule()
+    # Update the sleep schedule
+    model._update_sleep_schedule()
     
     # Check that the sleep cycle counter was incremented
     assert model.sleep_cycles_completed == 1
@@ -61,9 +60,8 @@ def test_adaptive_sleep_scheduling():
         model.knowledge_graph.graph.nodes[expert.expert_id]['activation_count'] = 0
         model.knowledge_graph.graph.nodes[expert.expert_id]['last_activated'] = model.step_count
     
-    # Update sleep schedule again with visualization
-    with capture_test_state(model, "Sleep Schedule Update (After Expert Addition)"):
-        model._update_sleep_schedule()
+    # Update sleep schedule again
+    model._update_sleep_schedule()
     
     # With many experts, frequency should decrease (sleep more often)
     if len(model.experts) > config.num_initial_experts * 2:

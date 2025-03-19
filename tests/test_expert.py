@@ -1,11 +1,11 @@
 import torch
 import pytest
 from src.core.expert import Expert
-from src.utils.testing.decorators import visualize_test, capture_test_state
+
 from src.utils.gpu_utils import get_optimal_worker_count
 
 
-@visualize_test
+
 def test_expert_initialization(optimized_test_config):
     """Test that an expert initializes correctly."""
     config = optimized_test_config
@@ -23,7 +23,7 @@ def test_expert_initialization(optimized_test_config):
     assert expert.network[-1].out_features == 5
 
 
-@visualize_test
+
 def test_expert_forward(optimized_test_config):
     """Test that an expert forward pass works correctly."""
     config = optimized_test_config
@@ -48,7 +48,7 @@ def test_expert_forward(optimized_test_config):
     assert expert.activation_count > 0
 
 
-@visualize_test
+
 def test_expert_clone(optimized_test_config):
     """Test that an expert can be cloned correctly."""
     config = optimized_test_config
@@ -83,7 +83,7 @@ def test_expert_clone(optimized_test_config):
     assert cloned_expert.activation_count == 0
 
 
-@visualize_test
+
 def test_parameter_similarity(optimized_test_config):
     """Test parameter similarity calculation."""
     config = optimized_test_config

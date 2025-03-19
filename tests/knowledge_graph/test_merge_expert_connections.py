@@ -3,10 +3,10 @@ import pytest
 import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_merge_expert_connections():
     """Test merging expert connections when removing an expert."""
     config = MorphConfig()
@@ -22,9 +22,8 @@ def test_merge_expert_connections():
     kg.add_edge(0, 3, weight=0.9, relation_type='specialization')
     # No connection to expert 4
     
-    # Merge connections from expert 0 to experts 1 and 3 with visualization
-    with capture_test_state(kg, "Merge Expert Connections"):
-        kg.merge_expert_connections(0, target_ids=[1, 3])
+    # Merge connections from expert 0 to experts 1 and 3
+    kg.merge_expert_connections(0, target_ids=[1, 3])
     
     # Check that expert 0's connections were transferred
     # Expert 1 should now be connected to experts 2 and 3

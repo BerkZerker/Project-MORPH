@@ -3,10 +3,10 @@ import pytest
 import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_update_expert_activation():
     """Test updating expert activation information."""
     config = MorphConfig()
@@ -17,9 +17,8 @@ def test_update_expert_activation():
     assert kg.graph.nodes[0]['activation_count'] == 0
     assert kg.graph.nodes[0]['last_activated'] == 0
     
-    # Update activation with visualization
-    with capture_test_state(kg, "Update Expert Activation"):
-        kg.update_expert_activation(0, step=42)
+    # Update activation
+    kg.update_expert_activation(0, step=42)
     assert kg.graph.nodes[0]['activation_count'] == 1
     assert kg.graph.nodes[0]['last_activated'] == 42
     

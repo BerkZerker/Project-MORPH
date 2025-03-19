@@ -3,10 +3,10 @@ import pytest
 import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_add_concept():
     """Test adding concepts to the knowledge graph."""
     config = MorphConfig()
@@ -15,10 +15,9 @@ def test_add_concept():
     # Use GPU if available
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
-    # Add a concept with visualization
+    # Add a concept
     embedding = torch.randn(10, device=device)
-    with capture_test_state(kg, "Add Concept"):
-        kg.add_concept("concept1", embedding)
+    kg.add_concept("concept1", embedding)
     
     # Check concept was added
     assert "concept1" in kg.concept_embeddings

@@ -3,10 +3,10 @@ import pytest
 import networkx as nx
 from src.config import MorphConfig
 from src.core.knowledge_graph import KnowledgeGraph
-from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
+
+
 def test_link_expert_to_concept():
     """Test linking experts to concepts."""
     config = MorphConfig()
@@ -20,9 +20,8 @@ def test_link_expert_to_concept():
     embedding = torch.randn(10, device=device)
     kg.add_concept("concept1", embedding)
     
-    # Link expert to concept with visualization
-    with capture_test_state(kg, "Link Expert to Concept"):
-        kg.link_expert_to_concept(0, "concept1", strength=0.9)
+    # Link expert to concept
+    kg.link_expert_to_concept(0, "concept1", strength=0.9)
     
     # Check linking worked
     assert "concept1" in kg.expert_concepts[0]

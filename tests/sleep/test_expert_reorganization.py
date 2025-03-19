@@ -2,11 +2,11 @@ import torch
 import pytest
 from src.config import MorphConfig
 from src.core.model import MorphModel
-from src.utils.testing.decorators import visualize_test, capture_test_state
+
 from src.utils.gpu_utils import get_optimal_worker_count
 
 
-@visualize_test
+
 def test_expert_reorganization():
     """Test expert reorganization based on activation patterns."""
     config = MorphConfig(
@@ -47,9 +47,8 @@ def test_expert_reorganization():
     model.expert_input_distributions[1] = expert1_features
     model.expert_input_distributions[2] = {f"feature_{i}": 1 for i in range(20, 70)}
     
-    # Perform reorganization with visualization
-    with capture_test_state(model, "Expert Reorganization"):
-        result = model._reorganize_experts(specialization_metrics)
+    # Perform reorganization
+    result = model._reorganize_experts(specialization_metrics)
     
     # Verify reorganization occurred
     assert result is True

@@ -2,11 +2,11 @@ import torch
 import pytest
 from src.config import MorphConfig
 from src.core.model import MorphModel
-from src.utils.testing.decorators import visualize_test, capture_test_state
+
 from src.utils.gpu_utils import get_optimal_worker_count
 
 
-@visualize_test
+
 def test_full_sleep_cycle():
     """Test a complete sleep cycle with all components."""
     config = MorphConfig(
@@ -73,9 +73,8 @@ def test_full_sleep_cycle():
         for p1, p2 in zip(model.experts[0].parameters(), model.experts[1].parameters()):
             p2.data = p1.data * 0.95 + torch.randn_like(p1.data) * 0.05
     
-    # Perform sleep cycle with visualization
-    with capture_test_state(model, "Full Sleep Cycle"):
-        model.sleep()
+    # Perform sleep cycle
+    model.sleep()
     
     # Check that sleep cycle was performed
     assert model.sleep_cycles_completed == 1
