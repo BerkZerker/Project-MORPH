@@ -42,8 +42,8 @@ class ModelMixedPrecision:
         Returns:
             True if mixed precision is enabled, False otherwise
         """
-        # Only enable if using CUDA
-        if enable and any(d.type == 'cuda' for d in self.devices):
+        # Only enable if using CUDA and CUDA is available
+        if enable and torch.cuda.is_available() and any(d.type == 'cuda' for d in self.devices):
             # Get the first CUDA device for capability check
             cuda_device = next((d for d in self.devices if d.type == 'cuda'), None)
             device_type = cuda_device.type if cuda_device else 'cuda'
@@ -100,11 +100,15 @@ class ModelMixedPrecision:
         """
         if not hasattr(self, 'mixed_precision_enabled') or not self.mixed_precision_enabled:
             return autocast(device_type or 'cuda', enabled=False)
-            
+        
         # Get device type from model if not specified
         if device_type is None:
-            cuda_device = next((d for d in self.devices if d.type == 'cuda'), None)
-            device_type = cuda_device.type if cuda_device else 'cuda'
+            # Check if CUDA is available first
+            if torch.cuda.is_available():
+                cuda_device = next((d for d in self.devices if d.type == 'cuda'), None)
+                device_type = cuda_device.type if cuda_device else 'cuda'
+            else:
+                device_type = 'cpu'
         
         # Set dtype based on precision type
         dtype = None

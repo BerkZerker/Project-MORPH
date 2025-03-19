@@ -39,6 +39,14 @@ class ModelDevice:
         Returns:
             Self for chaining
         """
+        # Check if we're trying to move to a CUDA device when CUDA is not available
+        if isinstance(device, torch.device) and device.type == 'cuda' and not torch.cuda.is_available():
+            # If CUDA is not available, use CPU instead
+            device = torch.device('cpu')
+        elif isinstance(device, str) and device.startswith('cuda') and not torch.cuda.is_available():
+            # If device is a string like 'cuda:0', convert to CPU
+            device = 'cpu'
+            
         # Only move components that should be on the primary device
         # Experts are managed separately through the expert_device_map
         if hasattr(self, 'gating') and self.gating is not None:
@@ -46,7 +54,7 @@ class ModelDevice:
         
         # Update the primary device
         if hasattr(self, 'device'):
-            self.device = device
+            self.device = torch.device(device)
         
         return self
     
@@ -68,7 +76,13 @@ class ModelDevice:
         
         # Create a new expert device map
         num_experts = len(self.experts)
-        new_expert_device_map = distribute_experts_across_gpus(num_experts, devices)
+        
+        # Only use distribute_experts_across_gpus if CUDA is available
+        if torch.cuda.is_available() and any(d.type == 'cuda' for d in devices):
+            new_expert_device_map = distribute_experts_across_gpus(num_experts, devices)
+        else:
+            # If CUDA is not available, assign all experts to the primary device (CPU)
+            new_expert_device_map = {i: self.device for i in range(num_experts)}
         
         # Move experts to their new devices
         for i, expert in enumerate(self.experts):
@@ -116,6 +130,14 @@ class ModelDevice:
         if expert_idx >= len(self.experts):
             logging.warning(f"Expert {expert_idx} does not exist")
             return False
+            
+        # Check if we're trying to move to a CUDA device when CUDA is not available
+        if isinstance(device, torch.device) and device.type == 'cuda' and not torch.cuda.is_available():
+            # If CUDA is not available, use CPU instead
+            device = torch.device('cpu')
+        elif isinstance(device, str) and device.startswith('cuda') and not torch.cuda.is_available():
+            # If device is a string like 'cuda:0', convert to CPU
+            device = 'cpu'
         
         # Get the expert
         expert = self.experts[expert_idx]

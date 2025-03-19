@@ -58,7 +58,8 @@ class ModelInitialization:
         logging.info(f"All devices: {self.devices}")
         
         # Set up mixed precision training if enabled and using CUDA
-        self.enable_mixed_precision = config.enable_mixed_precision and any(d.type == 'cuda' for d in self.devices)
+        cuda_available = torch.cuda.is_available()
+        self.enable_mixed_precision = config.enable_mixed_precision and cuda_available and any(d.type == 'cuda' for d in self.devices)
         if self.enable_mixed_precision:
             logging.info("Mixed precision training enabled")
             self.scaler = GradScaler('cuda')
@@ -116,8 +117,8 @@ class ModelInitialization:
         for i, expert in enumerate(self.experts):
             expert.expert_id = i
             
-        # Distribute experts across devices if using multi-GPU
-        if config.gpu_mode == "multi_gpu" and len(self.devices) > 1:
+        # Distribute experts across devices if using multi-GPU and CUDA is available
+        if torch.cuda.is_available() and config.gpu_mode == "multi_gpu" and len(self.devices) > 1:
             self.expert_device_map = distribute_experts_across_gpus(
                 config.num_initial_experts, self.devices
             )
@@ -178,8 +179,8 @@ class ModelInitialization:
         Args:
             config: Configuration object
         """
-        # Determine optimal batch size if auto_batch_size is enabled
-        if config.auto_batch_size and any(d.type == 'cuda' for d in self.devices):
+        # Determine optimal batch size if auto_batch_size is enabled and CUDA is available
+        if config.auto_batch_size and torch.cuda.is_available() and any(d.type == 'cuda' for d in self.devices):
             try:
                 # Create a dummy input to estimate batch size
                 dummy_input_shape = (config.input_size,)
@@ -201,8 +202,8 @@ class ModelInitialization:
         Args:
             config: Configuration object
         """
-        # Create parallel wrapper if using multi-GPU
-        if config.gpu_mode == "multi_gpu" and len(self.devices) > 1:
+        # Create parallel wrapper if using multi-GPU and CUDA is available
+        if torch.cuda.is_available() and config.gpu_mode == "multi_gpu" and len(self.devices) > 1:
             self._wrapped_model = create_parallel_wrapper(self, config)
             logging.info(f"Created parallel wrapper with strategy: {config.parallel_strategy}")
         else:

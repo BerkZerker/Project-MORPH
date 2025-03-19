@@ -1,3 +1,4 @@
+Remove all emojis from tests
 Update test guis to show accurate info, including processer info
 Full GPU use - in progress
 Make sure the config for the tests is the smallest possible without compromising functionality

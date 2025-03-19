@@ -63,8 +63,10 @@ def perform_memory_replay(sleep_module, model):
     total_loss = 0.0
     update_count = 0
     
-    # Use mixed precision if enabled
-    use_amp = getattr(model, 'enable_mixed_precision', False) and sleep_module.device.type == 'cuda'
+    # Use mixed precision if enabled and CUDA is available
+    cuda_available = torch.cuda.is_available()
+    device_is_cuda = sleep_module.device.type == 'cuda' if hasattr(sleep_module.device, 'type') else False
+    use_amp = getattr(model, 'enable_mixed_precision', False) and device_is_cuda and cuda_available
     scaler = getattr(model, 'scaler', None) if use_amp else None
     
     for expert_idx, activations in expert_activations.items():
@@ -91,8 +93,22 @@ def perform_memory_replay(sleep_module, model):
                 continue
             
             # Move data to the appropriate device
-            inputs = torch.cat([a['inputs'] for a in valid_batch]).to(sleep_module.device)
-            expected_outputs = torch.cat([a['outputs'] for a in valid_batch]).to(sleep_module.device)
+            inputs = torch.cat([a['inputs'] for a in valid_batch])
+            expected_outputs = torch.cat([a['outputs'] for a in valid_batch])
+            
+            # Only move to device if the tensors aren't already on the correct device
+            if hasattr(sleep_module, 'device'):
+                current_device = inputs.device
+                target_device = sleep_module.device
+                
+                # Check if we're trying to move to a CUDA device when CUDA is not available
+                if target_device.type == 'cuda' and not torch.cuda.is_available():
+                    # If CUDA is not available, use CPU instead
+                    target_device = torch.device('cpu')
+                
+                if current_device != target_device:
+                    inputs = inputs.to(target_device)
+                    expected_outputs = expected_outputs.to(target_device)
             
             # Skip empty batches
             if inputs.size(0) == 0:
@@ -102,7 +118,9 @@ def perform_memory_replay(sleep_module, model):
             expert_optimizer.zero_grad()
             
             # Forward pass with autocast if mixed precision is enabled
-            with torch.autocast(device_type=sleep_module.device.type, enabled=use_amp):
+            # Only use autocast with CUDA devices
+            device_type = sleep_module.device.type if hasattr(sleep_module.device, 'type') else 'cpu'
+            with torch.autocast(device_type=device_type, enabled=use_amp):
                 # Process inputs with expert
                 outputs = expert(inputs)
                 
