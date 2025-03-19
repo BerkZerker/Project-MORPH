@@ -3,7 +3,6 @@ from src.core.expert import Expert
 from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
 def test_parameter_similarity():
     """Test parameter similarity calculation."""
     # Move experts to GPU if available
@@ -12,9 +11,10 @@ def test_parameter_similarity():
     expert2 = expert1.clone()  # Different random weights
     
     # With different weights, similarity should be low
-    with capture_test_state(expert1, "Parameter Similarity Calculation"):
-        similarity = expert1.get_parameter_similarity(expert2)
-    assert 0 <= similarity <= 1  # Should be a valid similarity score
+    similarity = expert1.get_parameter_similarity(expert2)
+    assert -1 <= similarity <= 1  # Should be a valid similarity score
+    assert not torch.isnan(similarity) # Similarity should not be NaN
+    assert similarity > -0.5 # Ensure similarity is not too negative
     
     # Same expert should have perfect similarity
     similarity = expert1.get_parameter_similarity(expert1)

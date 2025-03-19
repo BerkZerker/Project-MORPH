@@ -3,7 +3,6 @@ from src.core.expert import Expert
 from src.utils.testing.decorators import visualize_test, capture_test_state
 
 
-@visualize_test
 def test_expert_clone():
     """Test that an expert can be cloned correctly."""
     expert = Expert(input_size=10, hidden_size=20, output_size=5, num_layers=3)
@@ -13,9 +12,8 @@ def test_expert_clone():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     expert = expert.to(device)
     
-    # Clone the expert with visualization
-    with capture_test_state(expert, "Expert Cloning"):
-        cloned_expert = expert.clone()
+    # Clone the expert
+    cloned_expert = expert.clone()
     
     # Check structure is the same
     assert expert.network[0].in_features == cloned_expert.network[0].in_features

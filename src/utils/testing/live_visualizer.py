@@ -311,7 +311,7 @@ def get_model_snapshot(model: MorphModel) -> Dict[str, Any]:
     """
     # Capture model state
     state = {
-        'num_experts': len(model.experts),
+        'num_experts': len(model.experts) if hasattr(model, 'experts') else 0,
         'sleep_cycles_completed': getattr(model, 'sleep_cycles_completed', 0),
         'step_count': getattr(model, 'step_count', 0),
         'next_sleep_step': getattr(model, 'next_sleep_step', None),
@@ -323,12 +323,13 @@ def get_model_snapshot(model: MorphModel) -> Dict[str, Any]:
     
     # Capture expert states
     expert_states = {}
-    for i, expert in enumerate(model.experts):
-        expert_states[i] = {
-            'expert_id': expert.expert_id,
-            'activation_count': expert.activation_count,
-            'last_activated': expert.last_activated,
-        }
+    if hasattr(model, 'experts'):
+        for i, expert in enumerate(model.experts):
+            expert_states[i] = {
+                'expert_id': expert.expert_id,
+                'activation_count': expert.activation_count,
+                'last_activated': expert.last_activated,
+            }
     
     state['expert_states'] = expert_states
     
