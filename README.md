@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A novel neural network architecture implementing a **Dynamic Mixture of Experts (MoE)** model with continuous learning capabilities, adaptive expert creation, and brain-inspired post-processing mechanisms.
+A novel neural network architecture implementing a **Dynamic Mixture of Experts (MoE)** model with continuous learning capabilities, adaptive expert creation, and brain-inspired post-processing mechanisms. The project is primarily focused on **text processing applications**, with future extensibility to other modalities.
 
 ## Key Features
 
@@ -86,11 +86,11 @@ pip install -e ".[dev]"
 from src.core.model import Model
 from src.config import Config
 
-# Initialize model
+# Initialize model for text processing
 config = Config(
-    input_size=784,  # Input feature size
+    input_size=768,  # Input feature size (e.g., BERT embedding dimension)
     expert_hidden_size=256,
-    output_size=10,  # Output size
+    output_size=10,  # Output size (e.g., number of text categories)
     num_initial_experts=4,
     expert_k=2,
     enable_dynamic_experts=True,
@@ -109,11 +109,11 @@ import torch.optim as optim
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# Train the model
+# Train the model on text data
 for epoch in range(10):
-    for inputs, targets in train_loader:
+    for text_embeddings, targets in text_data_loader:
         # Perform training step
-        metrics = model.train_step((inputs, targets), optimizer, criterion)
+        metrics = model.train_step((text_embeddings, targets), optimizer, criterion)
         print(f"Loss: {metrics['loss']:.4f}, Accuracy: {metrics['accuracy']:.2f}%")
     
     # Sleep cycle will be automatically triggered based on steps
@@ -290,7 +290,7 @@ Current status:
 
 ### Continual Learning
 
-The framework excels at continual learning tasks where the data distribution changes over time. The `examples/continual_learning_example.py` demonstrates this capability by training on a sequence of rotated MNIST tasks:
+The framework excels at continual learning tasks where the data distribution changes over time. The `examples/continual_learning_example.py` demonstrates this capability by training on a sequence of text classification tasks:
 
 ```bash
 # Run the continual learning example
@@ -298,10 +298,10 @@ python examples/continual_learning_example.py
 ```
 
 This example:
-1. Creates a sequence of 5 tasks with increasingly rotated MNIST digits
+1. Creates a sequence of text classification tasks with different domains (e.g., news articles, reviews, social media)
 2. Trains the model sequentially on each task
 3. Measures catastrophic forgetting on previous tasks
-4. Visualizes how experts are created and specialized during training
+4. Visualizes how experts are created and specialized during training for different text domains
 
 ### GPU Training
 
